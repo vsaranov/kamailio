@@ -559,6 +559,7 @@ static inline int t_uac_prepare(
 		refresh_shortcuts =
 				t_run_local_req(&buf, &buf_len, uac_r, new_cell, request);
 		if(unlikely(refresh_shortcuts == E_DROP)) {
+			shm_free(buf);
 			ret = E_DROP;
 			goto error1;
 		}
@@ -679,6 +680,7 @@ send:
 	ret = t_uac_prepare(uac_r, dst_req, 0);
 
 	if(unlikely(ret < 0 && ret == E_DROP)) {
+		uac_r->cb_flags |= TMCB_LOCAL_REQUEST_DROP;
 		ret = 0;
 	}
 
@@ -774,6 +776,7 @@ int t_uac_with_ids(
 
 	if(ret < 0) {
 		if(unlikely(ret == E_DROP)) {
+			uac_r->cb_flags |= TMCB_LOCAL_REQUEST_DROP;
 			ret = 0;
 		}
 		return ret;
@@ -1083,6 +1086,7 @@ int request(uac_req_t *uac_r, str *ruri, str *to, str *from, str *next_hop)
 	str callid, fromtag;
 	dlg_t *dialog;
 	int res;
+	unsigned int cseqno;
 
 	if(check_params(uac_r, to, from) < 0)
 		goto err;
@@ -1091,9 +1095,10 @@ int request(uac_req_t *uac_r, str *ruri, str *to, str *from, str *next_hop)
 		generate_callid(&callid);
 	else
 		callid = *uac_r->callid;
+	cseqno = (uac_r->cseqno > 0) ? uac_r->cseqno : DEFAULT_CSEQ;
 	generate_fromtag(&fromtag, &callid, ruri);
 
-	if(new_dlg_uac(&callid, &fromtag, DEFAULT_CSEQ, from, to, &dialog) < 0) {
+	if(new_dlg_uac(&callid, &fromtag, cseqno, from, to, &dialog) < 0) {
 		LM_ERR("Error while creating temporary dialog\n");
 		goto err;
 	}

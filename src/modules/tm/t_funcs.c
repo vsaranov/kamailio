@@ -49,12 +49,12 @@ extern int *failover_reply_codes_cnt;
 #endif
 
 /* fr_timer AVP specs */
-static int fr_timer_avp_type = 0;
-static int_str fr_timer_avp = {0};
+static avp_flags_t fr_timer_avp_type = 0;
+static avp_name_t fr_timer_avp = {0};
 static str fr_timer_str;
 static int fr_timer_index = 0;
-int fr_inv_timer_avp_type = 0;
-int_str fr_inv_timer_avp = {0};
+avp_flags_t fr_inv_timer_avp_type = 0;
+avp_name_t fr_inv_timer_avp = {0};
 static str fr_inv_timer_str;
 static int fr_inv_timer_index = 0;
 
@@ -177,6 +177,11 @@ int kill_transaction(struct cell *trans, int error)
 	int reply_ret;
 	int ret;
 
+	if((trans->uas.request != NULL)
+			&& (trans->uas.request->msg_flags & FL_FINAL_REPLY)) {
+		return t_release_transaction(trans);
+	}
+
 	/*  we reply statefully and enter WAIT state since error might
 		have occurred in middle of forking and we do not
 		want to put the forking burden on upstream client;
@@ -204,6 +209,11 @@ int kill_transaction_unsafe(struct cell *trans, int error)
 	int sip_err;
 	int reply_ret;
 	int ret;
+
+	if((trans->uas.request != NULL)
+			&& (trans->uas.request->msg_flags & FL_FINAL_REPLY)) {
+		return t_release_transaction(trans);
+	}
 
 	/*  we reply statefully and enter WAIT state since error might
 		have occurred in middle of forking and we do not
@@ -398,7 +408,7 @@ done:
 int init_avp_params(char *fr_timer_param, char *fr_inv_timer_param)
 {
 	pv_spec_t avp_spec;
-	unsigned short avp_type;
+	avp_flags_t avp_type;
 
 	if(fr_timer_param && *fr_timer_param) {
 		fr_timer_str.s = fr_timer_param;
@@ -473,7 +483,8 @@ int init_avp_params(char *fr_timer_param, char *fr_inv_timer_param)
  * @return 0 on success (use *timer) or 1 on failure (avp non-existent,
  *  avp present  but empty/0, avp value not numeric).
  */
-static inline int avp2timer(unsigned int *timer, int type, int_str name)
+static inline int avp2timer(
+		unsigned int *timer, avp_flags_t type, avp_name_t name)
 {
 	struct usr_avp *avp;
 	int_str val_istr;

@@ -4,7 +4,7 @@
  *
  * The initial version of this code was written by Dragos Vingarzan
  * (dragos(dot)vingarzan(at)fokus(dot)fraunhofer(dot)de and the
- * Fruanhofer Institute. It was and still is maintained in a separate
+ * Fraunhofer FOKUS Institute. It was and still is maintained in a separate
  * branch of the original SER. We are therefore migrating it to
  * Kamailio/SR and look forward to maintaining it from here on out.
  * 2011/2012 Smile Communications, Pty. Ltd.
@@ -14,7 +14,7 @@
  * effort to add full IMS support to Kamailio/SR using a new and
  * improved architecture
  *
- * NB: Alot of this code was originally part of OpenIMSCore,
+ * NB: A lot of this code was originally part of OpenIMSCore,
  * FhG Fokus.
  * Copyright (C) 2004-2006 FhG Fokus
  * Thanks for great work! This is an effort to
@@ -131,7 +131,9 @@ struct _pv_req_data _pv_treq;
 static int mod_init(void);
 static int child_init(int);
 static void mod_destroy(void);
-static int w_save(
+static int w_save2(struct sip_msg *_m, char *_route, char *_d);
+static int w_save3(struct sip_msg *_m, char *_route, char *_d, char *mode);
+static int w_save4(
 		struct sip_msg *_m, char *_route, char *_d, char *mode, char *_cflags);
 static int w_assign_server_unreg(
 		struct sip_msg *_m, char *_route, char *_d, char *_direction);
@@ -143,7 +145,7 @@ static int w_lookup_path_to_contact(struct sip_msg *_m, char *contact_uri);
 static int domain_fixup(void **param, int param_no);
 static int assign_save_fixup3_async(void **param, int param_no);
 static int free_uint_fixup(void **param, int param_no);
-static int save_fixup3(void **param, int param_no);
+static int save_fixup4(void **param, int param_no);
 static int unreg_fixup(void **param, int param_no);
 static int fetchc_fixup(void **param, int param_no);
 /*! \brief Functions */
@@ -168,17 +170,17 @@ int path_use_params =
 char *aor_avp_param =
 		0; /*!< if instead of extacting the AOR from the request, it should be
  						 * fetched via this AVP ID */
-unsigned short aor_avp_type = 0;
-int_str aor_avp_name;
+avp_flags_t aor_avp_type = 0;
+avp_name_t aor_avp_name;
 
 /* Populate this AVP if testing for specific registration instance. */
 char *reg_callid_avp_param = 0;
-unsigned short reg_callid_avp_type = 0;
-int_str reg_callid_avp_name;
+avp_flags_t reg_callid_avp_type = 0;
+avp_name_t reg_callid_avp_name;
 
 char *rcv_avp_param = 0;
-unsigned short rcv_avp_type = 0;
-int_str rcv_avp_name;
+avp_flags_t rcv_avp_type = 0;
+avp_name_t rcv_avp_name;
 
 int sock_flag = -1;
 str sock_hdr_name = {0, 0};
@@ -231,11 +233,11 @@ static pv_export_t mod_pvs[] = {
  * Exported functions
  */
 static cmd_export_t cmds[] = {
-		{"save", (cmd_function)w_save, 2, assign_save_fixup3_async, 0,
+		{"save", (cmd_function)w_save2, 2, assign_save_fixup3_async, 0,
 				REQUEST_ROUTE | ONREPLY_ROUTE},
-		{"save", (cmd_function)w_save, 3, assign_save_fixup3_async, 0,
+		{"save", (cmd_function)w_save3, 3, assign_save_fixup3_async, 0,
 				REQUEST_ROUTE | ONREPLY_ROUTE},
-		{"save", (cmd_function)w_save, 4, save_fixup3, free_uint_fixup,
+		{"save", (cmd_function)w_save4, 4, save_fixup4, free_uint_fixup,
 				REQUEST_ROUTE | ONREPLY_ROUTE},
 		{"lookup", (cmd_function)w_lookup, 1, domain_fixup, 0,
 				REQUEST_ROUTE | FAILURE_ROUTE},
@@ -677,9 +679,21 @@ AAAMessage *callback_cdp_request(AAAMessage *request, void *param)
 /*! \brief
  * Wrapper to save(location)
  */
-static int w_save(
+static int w_save2(struct sip_msg *_m, char *_route, char *_d)
+{
+	return save(_m, _d, _route, 0);
+}
+
+static int w_save3(struct sip_msg *_m, char *_route, char *_d, char *_mode)
+{
+	/* mode is unsed. Docs says legacy parameter? Maybe to be compatible with registrar/save? */
+	return save(_m, _d, _route, 0);
+}
+
+static int w_save4(
 		struct sip_msg *_m, char *_route, char *_d, char *mode, char *_cflags)
 {
+	/* mode is unsed. Docs says legacy parameter? Maybe to be compatible with registrar/save? */
 	if(_cflags) {
 		return save(_m, _d, _route, ((int)(*_cflags)));
 	}
@@ -772,7 +786,7 @@ static int assign_save_fixup3_async(void **param, int param_no)
 	return 0;
 }
 
-static int unit_fixup(void **param, int param_no)
+static int uint_fixup(void **param, int param_no)
 {
 	str s;
 	unsigned int *num;
@@ -800,36 +814,19 @@ static int unit_fixup(void **param, int param_no)
 
 static int free_uint_fixup(void **param, int param_no)
 {
-	if(*param && param_no == 2) {
+	if(*param && param_no == 4) {
 		pkg_free(*param);
 		*param = 0;
 	}
 	return 0;
 }
 
-static int save_fixup3(void **param, int param_no)
+static int save_fixup4(void **param, int param_no)
 {
-	if(strlen((char *)*param) <= 0) {
-		LM_ERR("empty parameter %d not allowed\n", param_no);
-		return -1;
-	}
-
-	if(param_no == 1) { //route name - static or dynamic string (config vars)
-		if(fixup_spve_null(param, param_no) < 0)
-			return -1;
-		return 0;
-	} else if(param_no == 2) {
-		udomain_t *d;
-
-		if(ul.register_udomain((char *)*param, &d) < 0) {
-			LM_ERR("Error doing fixup on save");
-			return -1;
-		}
-		*param = (void *)d;
-	} else if(param_no == 3) {
-		return 0;
+	if(param_no < 4) {
+		return assign_save_fixup3_async(param, param_no);
 	} else if(param_no == 4) {
-		return unit_fixup(param, param_no);
+		return uint_fixup(param, param_no);
 	}
 
 	return 0;

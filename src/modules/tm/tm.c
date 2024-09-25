@@ -242,6 +242,8 @@ int tm_failure_exec_mode = 0;
 
 int tm_dns_reuse_rcv_socket = 0;
 
+int tm_headers_mode = 0;
+
 static rpc_export_t tm_rpc[];
 
 str tm_event_callback = STR_NULL;
@@ -504,6 +506,8 @@ static param_export_t params[] = {
 	{"dns_reuse_rcv_socket", PARAM_INT, &tm_dns_reuse_rcv_socket},
 	{"local_cancel_reason", PARAM_INT, &default_tm_cfg.local_cancel_reason},
 	{"e2e_cancel_reason", PARAM_INT, &default_tm_cfg.e2e_cancel_reason},
+	{"e2e_cancel_hop_by_hop", PARAM_INT, &tm_e2e_cancel_hop_by_hop},
+	{"headers_mode", PARAM_INT, &tm_headers_mode},
 	{"xavp_contact", PARAM_STR, &ulattrs_xavp_name},
 	{"event_callback", PARAM_STR, &tm_event_callback},
 	{"relay_100", PARAM_INT, &default_tm_cfg.relay_100},
@@ -1608,6 +1612,11 @@ int ki_t_reply_error(sip_msg_t *msg)
 	int sip_err;
 	int ret;
 
+	if(msg->msg_flags & FL_FINAL_REPLY) {
+		LM_INFO("message marked with final-reply flag\n");
+		return -2;
+	}
+
 	ret = err2reason_phrase(
 			prev_ser_error, &sip_err, err_buffer, sizeof(err_buffer), "TM");
 	if(ret > 0) {
@@ -1839,16 +1848,26 @@ static int _w_t_relay_to(
 		if(res <= 0) {
 			if(res != E_CFG) {
 				LM_ERR("t_forward_noack failed\n");
-				/* let us save the error code, we might need it later
-				 * when the failure_route has finished (Miklos) */
+				if(get_kr() == REQ_ERR_DELAYED) {
+					p_msg->msg_flags |= FL_DELAYED_REPLY;
+				}
 			}
+			/* let us save the error code, we might need it later
+			 * when the failure_route has finished (Miklos) */
 			tm_error = ser_error;
 			return -1;
 		}
 		return 1;
 	}
-	if(is_route_type(REQUEST_ROUTE))
-		return t_relay_to(p_msg, proxy, force_proto, 0 /* no replication */);
+	if(is_route_type(REQUEST_ROUTE)) {
+		res = t_relay_to(p_msg, proxy, force_proto, 0 /* no replication */);
+		if(res < 0) {
+			if(get_kr() == REQ_ERR_DELAYED) {
+				p_msg->msg_flags |= FL_DELAYED_REPLY;
+			}
+		}
+		return res;
+	}
 	LM_CRIT("unsupported route type: %d\n", get_route_type());
 	return 0;
 }

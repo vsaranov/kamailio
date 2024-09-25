@@ -315,7 +315,7 @@ static inline char *int2strbuf(unsigned long l, char *r, int r_size, int *len)
 }
 
 extern char ut_buf_int2str[INT2STR_MAX_LEN];
-/** interger(long) to string conversion.
+/** integer(long) to string conversion.
  * This version uses a static buffer (shared with sint2str()).
  * WARNING: other function calls might overwrite the static buffer, so
  * either always save the result immediately or use int2strbuf(...).
@@ -700,6 +700,14 @@ static inline int str2int(str *_s, unsigned int *_r)
 	str2unval(_s, _r, int, UINT_MAX);
 }
 
+/*
+ * Convert a str to unsigned short
+ */
+static inline int str2ushort(str *_s, unsigned short *_r)
+{
+	str2unval(_s, _r, short, USHRT_MAX);
+}
+
 
 #define str2snval(_s, _r, _vtype, _vmin, _vmax)                                \
 	do {                                                                       \
@@ -1008,6 +1016,34 @@ static inline int pkg_str_dup(str *dst, const str *src)
 
 	return 0;
 }
+
+/**
+ * \brief Make a copy of a char pointer to a char pointer using pkg_malloc
+ * \param src source
+ * \return a pointer to the new allocated char on success, 0 on failure
+ */
+static inline char *pkg_char_dup(const char *src)
+{
+	char *rval;
+	int len;
+
+	if(!src) {
+		LM_ERR("NULL src or dst\n");
+		return NULL;
+	}
+
+	len = strlen(src) + 1;
+	rval = (char *)pkg_malloc(len);
+	if(!rval) {
+		PKG_MEM_ERROR;
+		return NULL;
+	}
+
+	memcpy(rval, src, len);
+
+	return rval;
+}
+
 
 /**
  * \brief Compare two str's case sensitive

@@ -122,6 +122,7 @@ Federico Cabiddu
               4.14. ds_load_unset()
               4.15. ds_reload()
               4.16. ds_dsg_fetch(setid)
+              4.17. ds_oc_set_attrs(setid, uri, rval, tval, sval)
 
         5. RPC Commands
 
@@ -133,6 +134,7 @@ Federico Cabiddu
               5.6. dispatcher.add
               5.7. dispatcher.remove
               5.8. dispatcher.hash
+              5.9. dispatcher.oclist
 
         6. Installation and Running
 
@@ -211,8 +213,9 @@ Federico Cabiddu
    1.57. ds_load_unset usage
    1.58. ds_reload usage
    1.59. ds_dsg_fetch() usage
-   1.60. dispatcher list file
-   1.61. Kamailio config script - sample dispatcher usage
+   1.60. ds_oc_set_attrs() usage
+   1.61. dispatcher list file
+   1.62. Kamailio config script - sample dispatcher usage
 
 Chapter 1. Admin Guide
 
@@ -289,6 +292,7 @@ Chapter 1. Admin Guide
         4.14. ds_load_unset()
         4.15. ds_reload()
         4.16. ds_dsg_fetch(setid)
+        4.17. ds_oc_set_attrs(setid, uri, rval, tval, sval)
 
    5. RPC Commands
 
@@ -300,6 +304,7 @@ Chapter 1. Admin Guide
         5.6. dispatcher.add
         5.7. dispatcher.remove
         5.8. dispatcher.hash
+        5.9. dispatcher.oclist
 
    6. Installation and Running
 
@@ -1115,6 +1120,7 @@ modparam("dispatcher", "ds_interval_mode", 7200)
    4.14. ds_load_unset()
    4.15. ds_reload()
    4.16. ds_dsg_fetch(setid)
+   4.17. ds_oc_set_attrs(setid, uri, rval, tval, sval)
 
 4.1.  ds_select_dst(set, alg[, limit])
 
@@ -1227,6 +1233,9 @@ GATEWAY | PRIORITY | ESTIMATED | ADJUSTED | LOAD
 With congestion control the formula becomes :
     CONGESTION_MS = CURRENT_LATENCY_MS - NORMAL_CONDITION_LATENCY_MS
     ADJUSTED_PRIORITY = PRIORITY - (CONGESTION_MS/PRIORITY)
+          + “64” - round-robin (next destination) with over load control
+            (destination record is skipped based on over load control
+            rate).
           + “X” - if the algorithm is not implemented, the first entry in
             set is chosen.
      * limit - the maximum number of items to be stored in XAVP list for
@@ -1489,9 +1498,16 @@ if(ds_list_exists("10")) {
        ignoring the protocol (value 2). If parameter is 0, all ip, port
        and proto are matched and active status is ignored. If bit one is
        set, then port is ignored. If bit two is set, then protocol is
-       ignored. If bit three is set, then state must be active. The
-       parameter can be an integer or a variable holding an integer value.
-       It must be provided if the uri parameter is provided.
+       ignored. If bit three is set, then state must be active. If bit
+       four is set, then socket/sockname be matched. If bit five is set,
+       then try to find the most closest target from all dispatcher
+       targets with the mandatory ip and combination of local socket,
+       protocol, port, the weighted search result is combined from bit
+       flags of matched components: ip - 1, port - 2, protocol - 4, local
+       socket - 8, the target with the maximum value of flags combination
+       will be selected. The parameter can be an integer or a variable
+       holding an integer value. It must be provided if the uri parameter
+       is provided.
      * uri (optional) - if parameter is empty or missing, the matching is
        done against source IP, port and protocol. Otherwise the value has
        to be a valid SIP URI, used to match against addresses in the
@@ -1622,6 +1638,32 @@ onreply_route {
     xinfo("set id: 1 - all: $dsg(count); active: $dsg(active)\n");
 ...
 
+4.17.  ds_oc_set_attrs(setid, uri, rval, tval, sval)
+
+   Sets the overload control rate, time internval limit and sequence
+   number for the destination record (setid, uri) following RFC7339
+   specifications.
+
+   Description of parameters:
+     * setid - the set (group) id. The parameter can be an integer or a
+       variable holding an integer value.
+     * uri - the URI of the destination.
+     * rval - the value of the overload control rate (from 1 to 100) - how
+       many times to skip using this destination in 100 selections.
+     * tval - time interval limit to apply the overload control rate (in
+       milliseconds). If the value is 0 or negative, then the default
+       value 500 is used.
+     * sval - the sequence number for overload control.
+
+   The parameters can include variables.
+
+   This function can be used from ANY_ROUTE.
+
+   Example 1.60. ds_oc_set_attrs() usage
+...
+    ds_oc_set_attrs("1", "sip:127.0.0.1:5080", "30", "180000", "1");
+...
+
 5. RPC Commands
 
    5.1. dispatcher.set_state
@@ -1632,6 +1674,7 @@ onreply_route {
    5.6. dispatcher.add
    5.7. dispatcher.remove
    5.8. dispatcher.hash
+   5.9. dispatcher.oclist
 
 5.1.  dispatcher.set_state
 
@@ -1812,6 +1855,22 @@ kamctl rpc dispatcher.hash 0 alice server.com
 kamctl rpc dispatcher.hash 4 bob server.com
 ...
 
+5.9.  dispatcher.oclist
+
+   List the overload control attributes for the records in a specific
+   group.
+
+   Name: dispatcher.oclist
+
+   Parameters:
+     * _group_: destination group id
+
+   Example:
+...
+# prototype: kamcli dispatcher.oclist _group_
+kamcli dispatcher.oclist 1
+...
+
 6. Installation and Running
 
    6.1. Destination List File
@@ -1843,6 +1902,7 @@ kamctl rpc dispatcher.hash 4 bob server.com
             startup, useful when the hostname of the destination address
             is a NAPTR or SRV record only. Such addresses cannot be
             matched anymore with ds_is_from_list(...).
+          + 32 (bit at index 5 - 1 <<5) - no ping to destination
      * priority: sets the priority in destination list (based on it is
        done the initial ordering inside the set)
      * attributes: extra fields in form of name1=value1;...;nameN=valueN.
@@ -1883,6 +1943,10 @@ kamctl rpc dispatcher.hash 4 bob server.com
      * 'obproxy' - SIP URI of outbound proxy to be used when sending
        pings. It overwrites the general ds_outbound_proxy parameter.
      * 'latency' - latency_stats initialization in ms.
+     * 'ocmin' - minimum limit for over load control rate (value between 0
+       and 100, default 10).
+     * 'ocrate' - over load control rate (value between 0 and 100, default
+       100).
 
 6.1.2. File Format
 
@@ -1900,7 +1964,7 @@ setid(int) destination(sip uri) flags(int,opt) priority(int,opt) attrs(str,opt)
    For database, each element of a line resides in a different column.
    Next is a dispatcher.list file example:
 
-   Example 1.60. dispatcher list file
+   Example 1.61. dispatcher list file
 ...
 #
 # dispatcher destination sets (groups)
@@ -1925,7 +1989,7 @@ r,opt)
 
    Next listing shows a sample config for using the dispatcher module.
 
-   Example 1.61. Kamailio config script - sample dispatcher usage
+   Example 1.62. Kamailio config script - sample dispatcher usage
 ...
 #!KAMAILIO
 #

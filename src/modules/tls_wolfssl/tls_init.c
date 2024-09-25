@@ -221,7 +221,6 @@ static void *ser_realloc(void *ptr, size_t size, const char *file, int line)
 #endif
 	return p;
 }
-
 #else /*TLS_MALLOC_DBG */
 static void *ser_malloc(size_t size)
 {
@@ -234,6 +233,7 @@ static void *ser_realloc(void *ptr, size_t size)
 }
 #endif
 
+
 static void ser_free(void *ptr)
 {
 	if(ptr) {
@@ -241,45 +241,6 @@ static void ser_free(void *ptr)
 	}
 }
 
-#if 0
-// up align memory allocations to 16 bytes for
-// wolfSSL --enable-aligndata=yes (the default)
-static const int MAX_ALIGN = __alignof__(max_align_t);
-
-static void* ser_malloc(size_t size)
-{
-	char* ptr =  shm_malloc(size + MAX_ALIGN);
-	int pad = MAX_ALIGN - ((long) ptr % MAX_ALIGN); // 8 or 16 bytes
-
-	memset(ptr, pad, pad);
-	return ptr + pad;
-}
-
-static void* ser_realloc(void *ptr, size_t new_size)
-{
-	if(!ptr) return ser_malloc(new_size);
-
-	int pad = *((char*)ptr - 1); // 8 or 16 bytes
-	char *real_ptr = (char*)ptr - pad;
-
-	char *new_ptr = shm_realloc(real_ptr, new_size+MAX_ALIGN);
-	int new_pad = MAX_ALIGN - ((long) new_ptr % MAX_ALIGN);
-	if (new_pad != pad) {
-		memmove(new_ptr + new_pad, new_ptr + pad, new_size);
-		memset(new_ptr, new_pad, new_pad);
-	}
-
-	return new_ptr + new_pad;
-}
-
-static void ser_free(void *ptr)
-{
-	if (ptr) {
-		int pad = *((unsigned char *)ptr - 1);
-		shm_free((unsigned char*)ptr - pad);
-	}
-}
-#endif
 
 /*
  * Initialize TLS socket
@@ -318,73 +279,61 @@ static void init_ssl_methods(void)
 	memset(sr_tls_methods, 0, sizeof(sr_tls_methods));
 
 	/* any SSL/TLS version */
-	sr_tls_methods[TLS_USE_SSLv23_cli - 1].TLSMethod = TLS_client_method();
-	sr_tls_methods[TLS_USE_SSLv23_srv - 1].TLSMethod = TLS_server_method();
-	sr_tls_methods[TLS_USE_SSLv23 - 1].TLSMethod = TLS_method();
+	sr_tls_methods[TLS_USE_SSLv23_cli - 1].TLSMethod = wolfTLS_client_method();
+	sr_tls_methods[TLS_USE_SSLv23_srv - 1].TLSMethod = wolfTLS_server_method();
+	sr_tls_methods[TLS_USE_SSLv23 - 1].TLSMethod = wolfSSLv23_method();
 
-#ifndef OPENSSL_NO_SSL3_METHOD
-	sr_tls_methods[TLS_USE_SSLv3_cli - 1].TLSMethod = TLS_client_method();
-	sr_tls_methods[TLS_USE_SSLv3_cli - 1].TLSMethodMin = SSL3_VERSION;
-	sr_tls_methods[TLS_USE_SSLv3_cli - 1].TLSMethodMax = SSL3_VERSION;
-	sr_tls_methods[TLS_USE_SSLv3_srv - 1].TLSMethod = TLS_server_method();
-	sr_tls_methods[TLS_USE_SSLv3_srv - 1].TLSMethodMin = SSL3_VERSION;
-	sr_tls_methods[TLS_USE_SSLv3_srv - 1].TLSMethodMax = SSL3_VERSION;
-	sr_tls_methods[TLS_USE_SSLv3 - 1].TLSMethod = TLS_method();
-	sr_tls_methods[TLS_USE_SSLv3 - 1].TLSMethodMin = SSL3_VERSION;
-	sr_tls_methods[TLS_USE_SSLv3 - 1].TLSMethodMax = SSL3_VERSION;
-#endif
-
-	sr_tls_methods[TLS_USE_TLSv1_cli - 1].TLSMethod = TLS_client_method();
+	sr_tls_methods[TLS_USE_TLSv1_cli - 1].TLSMethod = wolfTLS_client_method();
 	sr_tls_methods[TLS_USE_TLSv1_cli - 1].TLSMethodMin = TLS1_VERSION;
 	sr_tls_methods[TLS_USE_TLSv1_cli - 1].TLSMethodMax = TLS1_VERSION;
-	sr_tls_methods[TLS_USE_TLSv1_srv - 1].TLSMethod = TLS_server_method();
+	sr_tls_methods[TLS_USE_TLSv1_srv - 1].TLSMethod = wolfTLS_server_method();
 	sr_tls_methods[TLS_USE_TLSv1_srv - 1].TLSMethodMin = TLS1_VERSION;
 	sr_tls_methods[TLS_USE_TLSv1_srv - 1].TLSMethodMax = TLS1_VERSION;
-	sr_tls_methods[TLS_USE_TLSv1 - 1].TLSMethod = TLS_method();
+	sr_tls_methods[TLS_USE_TLSv1 - 1].TLSMethod = wolfSSLv23_method();
 	sr_tls_methods[TLS_USE_TLSv1 - 1].TLSMethodMin = TLS1_VERSION;
 	sr_tls_methods[TLS_USE_TLSv1 - 1].TLSMethodMax = TLS1_VERSION;
 
-	sr_tls_methods[TLS_USE_TLSv1_1_cli - 1].TLSMethod = TLS_client_method();
+	sr_tls_methods[TLS_USE_TLSv1_1_cli - 1].TLSMethod = wolfTLS_client_method();
 	sr_tls_methods[TLS_USE_TLSv1_1_cli - 1].TLSMethodMin = TLS1_1_VERSION;
 	sr_tls_methods[TLS_USE_TLSv1_1_cli - 1].TLSMethodMax = TLS1_1_VERSION;
-	sr_tls_methods[TLS_USE_TLSv1_1_srv - 1].TLSMethod = TLS_server_method();
+	sr_tls_methods[TLS_USE_TLSv1_1_srv - 1].TLSMethod = wolfTLS_server_method();
 	sr_tls_methods[TLS_USE_TLSv1_1_srv - 1].TLSMethodMin = TLS1_1_VERSION;
 	sr_tls_methods[TLS_USE_TLSv1_1_srv - 1].TLSMethodMax = TLS1_1_VERSION;
-	sr_tls_methods[TLS_USE_TLSv1_1 - 1].TLSMethod = TLS_method();
+	sr_tls_methods[TLS_USE_TLSv1_1 - 1].TLSMethod = wolfSSLv23_method();
 	sr_tls_methods[TLS_USE_TLSv1_1 - 1].TLSMethodMin = TLS1_1_VERSION;
 	sr_tls_methods[TLS_USE_TLSv1_1 - 1].TLSMethodMax = TLS1_1_VERSION;
 
-	sr_tls_methods[TLS_USE_TLSv1_2_cli - 1].TLSMethod = TLS_client_method();
+	sr_tls_methods[TLS_USE_TLSv1_2_cli - 1].TLSMethod = wolfTLS_client_method();
 	sr_tls_methods[TLS_USE_TLSv1_2_cli - 1].TLSMethodMin = TLS1_2_VERSION;
 	sr_tls_methods[TLS_USE_TLSv1_2_cli - 1].TLSMethodMax = TLS1_2_VERSION;
-	sr_tls_methods[TLS_USE_TLSv1_2_srv - 1].TLSMethod = TLS_server_method();
+	sr_tls_methods[TLS_USE_TLSv1_2_srv - 1].TLSMethod = wolfTLS_server_method();
 	sr_tls_methods[TLS_USE_TLSv1_2_srv - 1].TLSMethodMin = TLS1_2_VERSION;
 	sr_tls_methods[TLS_USE_TLSv1_2_srv - 1].TLSMethodMax = TLS1_2_VERSION;
-	sr_tls_methods[TLS_USE_TLSv1_2 - 1].TLSMethod = TLS_method();
+	sr_tls_methods[TLS_USE_TLSv1_2 - 1].TLSMethod = wolfSSLv23_method();
 	sr_tls_methods[TLS_USE_TLSv1_2 - 1].TLSMethodMin = TLS1_2_VERSION;
 	sr_tls_methods[TLS_USE_TLSv1_2 - 1].TLSMethodMax = TLS1_2_VERSION;
 
-	sr_tls_methods[TLS_USE_TLSv1_3_cli - 1].TLSMethod = TLS_client_method();
+	sr_tls_methods[TLS_USE_TLSv1_3_cli - 1].TLSMethod = wolfTLS_client_method();
 	sr_tls_methods[TLS_USE_TLSv1_3_cli - 1].TLSMethodMin = TLS1_3_VERSION;
 	sr_tls_methods[TLS_USE_TLSv1_3_cli - 1].TLSMethodMax = TLS1_3_VERSION;
-	sr_tls_methods[TLS_USE_TLSv1_3_srv - 1].TLSMethod = TLS_server_method();
+	sr_tls_methods[TLS_USE_TLSv1_3_srv - 1].TLSMethod = wolfTLS_server_method();
 	sr_tls_methods[TLS_USE_TLSv1_3_srv - 1].TLSMethodMin = TLS1_3_VERSION;
 	sr_tls_methods[TLS_USE_TLSv1_3_srv - 1].TLSMethodMax = TLS1_3_VERSION;
-	sr_tls_methods[TLS_USE_TLSv1_3 - 1].TLSMethod = TLS_method();
+	sr_tls_methods[TLS_USE_TLSv1_3 - 1].TLSMethod = wolfSSLv23_method();
 	sr_tls_methods[TLS_USE_TLSv1_3 - 1].TLSMethodMin = TLS1_3_VERSION;
 	sr_tls_methods[TLS_USE_TLSv1_3 - 1].TLSMethodMax = TLS1_3_VERSION;
 
 	/* ranges of TLS versions (require a minimum TLS version) */
-	sr_tls_methods[TLS_USE_TLSv1_PLUS - 1].TLSMethod = TLS_method();
+	sr_tls_methods[TLS_USE_TLSv1_PLUS - 1].TLSMethod = wolfSSLv23_method();
 	sr_tls_methods[TLS_USE_TLSv1_PLUS - 1].TLSMethodMin = TLS1_VERSION;
 
-	sr_tls_methods[TLS_USE_TLSv1_1_PLUS - 1].TLSMethod = TLS_method();
+	sr_tls_methods[TLS_USE_TLSv1_1_PLUS - 1].TLSMethod = wolfSSLv23_method();
 	sr_tls_methods[TLS_USE_TLSv1_1_PLUS - 1].TLSMethodMin = TLS1_1_VERSION;
 
-	sr_tls_methods[TLS_USE_TLSv1_2_PLUS - 1].TLSMethod = TLS_method();
+	sr_tls_methods[TLS_USE_TLSv1_2_PLUS - 1].TLSMethod = wolfSSLv23_method();
 	sr_tls_methods[TLS_USE_TLSv1_2_PLUS - 1].TLSMethodMin = TLS1_2_VERSION;
 
-	sr_tls_methods[TLS_USE_TLSv1_3_PLUS - 1].TLSMethod = TLS_method();
+	sr_tls_methods[TLS_USE_TLSv1_3_PLUS - 1].TLSMethod = wolfSSLv23_method();
 	sr_tls_methods[TLS_USE_TLSv1_3_PLUS - 1].TLSMethodMin = TLS1_3_VERSION;
 }
 

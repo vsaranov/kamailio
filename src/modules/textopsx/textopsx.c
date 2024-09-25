@@ -46,6 +46,7 @@
 MODULE_VERSION
 
 static int msg_apply_changes_f(sip_msg_t *msg, char *str1, char *str2);
+static int msg_changed_route_f(sip_msg_t *msg, char *str1, char *str2);
 static int msg_set_buffer_f(sip_msg_t *msg, char *p1data, char *p2);
 
 static int change_reply_status_f(sip_msg_t *, char *, char *);
@@ -107,96 +108,96 @@ static int pv_parse_bl_iterator_name(pv_spec_t *sp, str *in);
 static int pv_get_bl_iterator_value(
 		sip_msg_t *msg, pv_param_t *param, pv_value_t *res);
 
-static pv_export_t mod_pvs[] = {{{"hfitname", sizeof("hfitname") - 1},
-										PVT_OTHER, pv_get_hf_iterator_hname, 0,
-										pv_parse_hf_iterator_name, 0, 0, 0},
-		{{"hfitbody", sizeof("hfitbody") - 1}, PVT_OTHER,
-				pv_get_hf_iterator_hbody, 0, pv_parse_hf_iterator_name, 0, 0,
-				0},
-		{{"blitval", sizeof("blitval") - 1}, PVT_OTHER,
-				pv_get_bl_iterator_value, 0, pv_parse_bl_iterator_name, 0, 0,
-				0},
-		{{0, 0}, 0, 0, 0, 0, 0, 0, 0}};
+/* clang-format off */
+static pv_export_t mod_pvs[] = {
+	{{"hfitname", sizeof("hfitname") - 1}, PVT_OTHER,
+		pv_get_hf_iterator_hname, 0, pv_parse_hf_iterator_name, 0, 0, 0},
+	{{"hfitbody", sizeof("hfitbody") - 1}, PVT_OTHER,
+		pv_get_hf_iterator_hbody, 0, pv_parse_hf_iterator_name, 0, 0, 0},
+	{{"blitval", sizeof("blitval") - 1}, PVT_OTHER,
+		pv_get_bl_iterator_value, 0, pv_parse_bl_iterator_name, 0, 0, 0},
+	{{0, 0}, 0, 0, 0, 0, 0, 0, 0}
+};
 
 /* cfg functions */
-/* clag-format off */
 static cmd_export_t cmds[] = {
-		{"msg_apply_changes", (cmd_function)msg_apply_changes_f, 0, 0, 0,
-				REQUEST_ROUTE | ONREPLY_ROUTE},
-		{"msg_set_buffer", (cmd_function)msg_set_buffer_f, 1, fixup_spve_null,
-				fixup_free_spve_null, REQUEST_ROUTE | ONREPLY_ROUTE},
-		{"change_reply_status", change_reply_status_f, 2,
-				change_reply_status_fixup, 0, ONREPLY_ROUTE},
-		{"change_reply_status_code", change_reply_status_code_f, 1,
-				fixup_igp_null, 0, ONREPLY_ROUTE},
-		{"remove_body", (cmd_function)w_remove_body_f, 0, 0, 0, ANY_ROUTE},
-		{"keep_hf", (cmd_function)w_keep_hf_f, 0, fixup_regexp_null, 0,
-				ANY_ROUTE},
-		{"keep_hf", (cmd_function)w_keep_hf_f, 1, fixup_regexp_null, 0,
-				ANY_ROUTE},
-		{"fnmatch", (cmd_function)w_fnmatch2_f, 2, fixup_fnmatch, 0, ANY_ROUTE},
-		{"fnmatch", (cmd_function)w_fnmatch3_f, 3, fixup_fnmatch, 0, ANY_ROUTE},
-		{"append_hf_value", insupddel_hf_value_f, 2, append_hf_value_fixup, 0,
-				REQUEST_ROUTE | ONREPLY_ROUTE | FAILURE_ROUTE | BRANCH_ROUTE},
-		{"insert_hf_value", insupddel_hf_value_f, 2, insert_hf_value_fixup, 0,
-				REQUEST_ROUTE | ONREPLY_ROUTE | FAILURE_ROUTE | BRANCH_ROUTE},
-		{"remove_hf_value", insupddel_hf_value_f, 1, remove_hf_value_fixup, 0,
-				REQUEST_ROUTE | ONREPLY_ROUTE | FAILURE_ROUTE | BRANCH_ROUTE},
-		{"assign_hf_value", insupddel_hf_value_f, 2, assign_hf_value_fixup, 0,
-				REQUEST_ROUTE | ONREPLY_ROUTE | FAILURE_ROUTE | BRANCH_ROUTE},
-		{"remove_hf_value2", insupddel_hf_value_f, 1, remove_hf_value2_fixup, 0,
-				REQUEST_ROUTE | ONREPLY_ROUTE | FAILURE_ROUTE | BRANCH_ROUTE},
-		{"assign_hf_value2", insupddel_hf_value_f, 2, assign_hf_value2_fixup, 0,
-				REQUEST_ROUTE | ONREPLY_ROUTE | FAILURE_ROUTE | BRANCH_ROUTE},
-		{"include_hf_value", incexc_hf_value_f, 2, include_hf_value_fixup, 0,
-				REQUEST_ROUTE | ONREPLY_ROUTE | FAILURE_ROUTE | BRANCH_ROUTE},
-		{"exclude_hf_value", incexc_hf_value_f, 2, exclude_hf_value_fixup, 0,
-				REQUEST_ROUTE | ONREPLY_ROUTE | FAILURE_ROUTE | BRANCH_ROUTE},
-		{"hf_value_exists", incexc_hf_value_f, 2, hf_value_exists_fixup, 0,
-				REQUEST_ROUTE | ONREPLY_ROUTE | FAILURE_ROUTE | BRANCH_ROUTE},
-		{"hf_iterator_start", w_hf_iterator_start, 1, fixup_spve_null,
-				fixup_free_spve_null, ANY_ROUTE},
-		{"hf_iterator_next", w_hf_iterator_next, 1, fixup_spve_null,
-				fixup_free_spve_null, ANY_ROUTE},
-		{"hf_iterator_prev", w_hf_iterator_prev, 1, fixup_spve_null,
-				fixup_free_spve_null, ANY_ROUTE},
-		{"hf_iterator_end", w_hf_iterator_end, 1, fixup_spve_null,
-				fixup_free_spve_null, ANY_ROUTE},
-		{"hf_iterator_rm", w_hf_iterator_rm, 1, fixup_spve_null,
-				fixup_free_spve_null, ANY_ROUTE},
-		{"hf_iterator_append", w_hf_iterator_append, 2, fixup_spve_spve,
-				fixup_free_spve_spve, ANY_ROUTE},
-		{"hf_iterator_insert", w_hf_iterator_insert, 2, fixup_spve_spve,
-				fixup_free_spve_spve, ANY_ROUTE},
-		{"bl_iterator_start", w_bl_iterator_start, 1, fixup_spve_null,
-				fixup_free_spve_null, ANY_ROUTE},
-		{"bl_iterator_next", w_bl_iterator_next, 1, fixup_spve_null,
-				fixup_free_spve_null, ANY_ROUTE},
-		{"bl_iterator_end", w_bl_iterator_end, 1, fixup_spve_null,
-				fixup_free_spve_null, ANY_ROUTE},
-		{"bl_iterator_rm", w_bl_iterator_rm, 1, fixup_spve_null,
-				fixup_free_spve_null, ANY_ROUTE},
-		{"bl_iterator_append", w_bl_iterator_append, 2, fixup_spve_spve,
-				fixup_free_spve_spve, ANY_ROUTE},
-		{"bl_iterator_insert", w_bl_iterator_insert, 2, fixup_spve_spve,
-				fixup_free_spve_spve, ANY_ROUTE},
+	{"msg_apply_changes", (cmd_function)msg_apply_changes_f, 0, 0, 0,
+			REQUEST_ROUTE | ONREPLY_ROUTE},
+	{"msg_changed_route", (cmd_function)msg_changed_route_f, 1, fixup_spve_null,
+			fixup_free_spve_null, ANY_ROUTE},
+	{"msg_set_buffer", (cmd_function)msg_set_buffer_f, 1, fixup_spve_null,
+			fixup_free_spve_null, REQUEST_ROUTE | ONREPLY_ROUTE},
+	{"change_reply_status", change_reply_status_f, 2,
+			change_reply_status_fixup, 0, ONREPLY_ROUTE},
+	{"change_reply_status_code", change_reply_status_code_f, 1,
+			fixup_igp_null, 0, ONREPLY_ROUTE},
+	{"remove_body", (cmd_function)w_remove_body_f, 0, 0, 0, ANY_ROUTE},
+	{"keep_hf", (cmd_function)w_keep_hf_f, 0, fixup_regexp_null, 0, ANY_ROUTE},
+	{"keep_hf", (cmd_function)w_keep_hf_f, 1, fixup_regexp_null, 0, ANY_ROUTE},
+	{"fnmatch", (cmd_function)w_fnmatch2_f, 2, fixup_fnmatch, 0, ANY_ROUTE},
+	{"fnmatch", (cmd_function)w_fnmatch3_f, 3, fixup_fnmatch, 0, ANY_ROUTE},
+	{"append_hf_value", insupddel_hf_value_f, 2, append_hf_value_fixup, 0,
+			REQUEST_ROUTE | ONREPLY_ROUTE | FAILURE_ROUTE | BRANCH_ROUTE},
+	{"insert_hf_value", insupddel_hf_value_f, 2, insert_hf_value_fixup, 0,
+			REQUEST_ROUTE | ONREPLY_ROUTE | FAILURE_ROUTE | BRANCH_ROUTE},
+	{"remove_hf_value", insupddel_hf_value_f, 1, remove_hf_value_fixup, 0,
+			REQUEST_ROUTE | ONREPLY_ROUTE | FAILURE_ROUTE | BRANCH_ROUTE},
+	{"assign_hf_value", insupddel_hf_value_f, 2, assign_hf_value_fixup, 0,
+			REQUEST_ROUTE | ONREPLY_ROUTE | FAILURE_ROUTE | BRANCH_ROUTE},
+	{"remove_hf_value2", insupddel_hf_value_f, 1, remove_hf_value2_fixup, 0,
+			REQUEST_ROUTE | ONREPLY_ROUTE | FAILURE_ROUTE | BRANCH_ROUTE},
+	{"assign_hf_value2", insupddel_hf_value_f, 2, assign_hf_value2_fixup, 0,
+			REQUEST_ROUTE | ONREPLY_ROUTE | FAILURE_ROUTE | BRANCH_ROUTE},
+	{"include_hf_value", incexc_hf_value_f, 2, include_hf_value_fixup, 0,
+			REQUEST_ROUTE | ONREPLY_ROUTE | FAILURE_ROUTE | BRANCH_ROUTE},
+	{"exclude_hf_value", incexc_hf_value_f, 2, exclude_hf_value_fixup, 0,
+			REQUEST_ROUTE | ONREPLY_ROUTE | FAILURE_ROUTE | BRANCH_ROUTE},
+	{"hf_value_exists", incexc_hf_value_f, 2, hf_value_exists_fixup, 0,
+			REQUEST_ROUTE | ONREPLY_ROUTE | FAILURE_ROUTE | BRANCH_ROUTE},
+	{"hf_iterator_start", w_hf_iterator_start, 1, fixup_spve_null,
+			fixup_free_spve_null, ANY_ROUTE},
+	{"hf_iterator_next", w_hf_iterator_next, 1, fixup_spve_null,
+			fixup_free_spve_null, ANY_ROUTE},
+	{"hf_iterator_prev", w_hf_iterator_prev, 1, fixup_spve_null,
+			fixup_free_spve_null, ANY_ROUTE},
+	{"hf_iterator_end", w_hf_iterator_end, 1, fixup_spve_null,
+			fixup_free_spve_null, ANY_ROUTE},
+	{"hf_iterator_rm", w_hf_iterator_rm, 1, fixup_spve_null,
+			fixup_free_spve_null, ANY_ROUTE},
+	{"hf_iterator_append", w_hf_iterator_append, 2, fixup_spve_spve,
+			fixup_free_spve_spve, ANY_ROUTE},
+	{"hf_iterator_insert", w_hf_iterator_insert, 2, fixup_spve_spve,
+			fixup_free_spve_spve, ANY_ROUTE},
+	{"bl_iterator_start", w_bl_iterator_start, 1, fixup_spve_null,
+			fixup_free_spve_null, ANY_ROUTE},
+	{"bl_iterator_next", w_bl_iterator_next, 1, fixup_spve_null,
+			fixup_free_spve_null, ANY_ROUTE},
+	{"bl_iterator_end", w_bl_iterator_end, 1, fixup_spve_null,
+			fixup_free_spve_null, ANY_ROUTE},
+	{"bl_iterator_rm", w_bl_iterator_rm, 1, fixup_spve_null,
+			fixup_free_spve_null, ANY_ROUTE},
+	{"bl_iterator_append", w_bl_iterator_append, 2, fixup_spve_spve,
+			fixup_free_spve_spve, ANY_ROUTE},
+	{"bl_iterator_insert", w_bl_iterator_insert, 2, fixup_spve_spve,
+			fixup_free_spve_spve, ANY_ROUTE},
 
-		{"bind_textopsx", (cmd_function)bind_textopsx, 1, 0, 0, ANY_ROUTE},
+	{"bind_textopsx", (cmd_function)bind_textopsx, 1, 0, 0, ANY_ROUTE},
 
-		{0, 0, 0, 0, 0, 0}};
+	{0, 0, 0, 0, 0, 0}
+};
 
 /* module exports structure */
 struct module_exports exports = {
-		"textopsx",		 /* module name */
-		DEFAULT_DLFLAGS, /* dlopen flags */
-		cmds,			 /* exported cfg functions */
-		0,				 /* exported cfg parameters */
-		0,				 /* exported RPC methods */
-		mod_pvs,		 /* exported pseudo-variables */
-		0,				 /* response handling function */
-		mod_init,		 /* module init function */
-		0,				 /* per-child init function */
-		0,				 /* destroy function */
+	"textopsx",		 /* module name */
+	DEFAULT_DLFLAGS, /* dlopen flags */
+	cmds,			 /* exported cfg functions */
+	0,				 /* exported cfg parameters */
+	0,				 /* exported RPC methods */
+	mod_pvs,		 /* exported pseudo-variables */
+	0,				 /* response handling function */
+	mod_init,		 /* module init function */
+	0,				 /* per-child init function */
+	0,				 /* destroy function */
 };
 /* clag-format on */
 
@@ -276,6 +277,92 @@ static int ki_msg_apply_changes(sip_msg_t *msg)
 static int msg_apply_changes_f(sip_msg_t *msg, char *str1, char *str2)
 {
 	return sip_msg_apply_changes(msg);
+}
+
+/**
+ *
+ */
+static int ki_msg_changed_route(sip_msg_t *msg, str *rname)
+{
+	str obuf = STR_NULL;
+	int ridx = -1;
+	sip_msg_t lmsg;
+	sr_kemi_eng_t *keng = NULL;
+	run_act_ctx_t ctx;
+	str evname = str_init("textopsx:msg-changed-route");
+
+	keng = sr_kemi_eng_get();
+	if(keng == NULL) {
+		ridx = route_lookup(&main_rt, rname->s);
+		if(ridx < 0) {
+			LM_ERR("route block [%.*s] not found\n", rname->len, rname->s);
+			return -1;
+		}
+	}
+
+	if(sip_msg_eval_changes(msg, &obuf) < 0 || obuf.s == NULL) {
+		LM_ERR("failed to evaluate msg changes\n");
+		return -1;
+	}
+
+	memset(&lmsg, 0, sizeof(sip_msg_t));
+	lmsg.buf = obuf.s;
+	lmsg.len = obuf.len;
+	lmsg.id = msg->id;
+	lmsg.pid = msg->pid;
+	lmsg.rcv = msg->rcv;
+	lmsg.set_global_address = msg->set_global_address;
+	lmsg.set_global_port = msg->set_global_port;
+	lmsg.flags = msg->flags;
+	lmsg.msg_flags = msg->msg_flags;
+	memcpy(lmsg.xflags, msg->xflags, KSR_XFLAGS_SIZE * sizeof(flag_t));
+	lmsg.hash_index = msg->hash_index;
+	lmsg.force_send_socket = msg->force_send_socket;
+
+	/* parse the local message */
+	LM_DBG("SIP message content updated - parsing\n");
+	if(parse_msg(lmsg.buf, lmsg.len, &lmsg) != 0) {
+		LM_ERR("parsing new sip message failed [[%.*s]]\n", lmsg.len, lmsg.buf);
+		return -1;
+	}
+	if(parse_headers(&lmsg, HDR_FROM_F | HDR_TO_F | HDR_CALLID_F | HDR_CSEQ_F, 0)
+			< 0) {
+		LM_ERR("parsing main headers of new sip message failed [[%.*s]]\n",
+				lmsg.len, lmsg.buf);
+		return -1;
+	}
+	init_run_actions_ctx(&ctx);
+
+	if(keng == NULL) {
+		run_top_route(main_rt.rlist[ridx], &lmsg, &ctx);
+	} else {
+		if(sr_kemi_ctx_route(keng, &ctx, &lmsg, get_route_type(),
+				   rname, &evname)
+				< 0) {
+			LM_ERR("error running route kemi callback\n");
+		}
+	}
+
+	free_sip_msg(&lmsg);
+
+	pkg_free(obuf.s);
+
+	return 1;
+}
+
+/**
+ *
+ */
+static int msg_changed_route_f(sip_msg_t *msg, char *prname, char *str2)
+{
+	str rname = STR_NULL;
+
+	if(fixup_get_svalue(msg, (gparam_t *)prname, &rname) < 0) {
+		LM_ERR("could not get route name param value\n");
+		return -1;
+	}
+
+	return ki_msg_changed_route(msg, &rname);
 }
 
 /**
@@ -2443,7 +2530,7 @@ static int pv_get_hf_iterator_hbody(
 typedef struct bl_iterator
 {
 	str name;
-	char bname[HF_ITERATOR_NAME_SIZE];
+	char bname[BL_ITERATOR_NAME_SIZE];
 	str body;
 	str it;
 	int eob;

@@ -138,12 +138,12 @@ int ms_max_messages = 0;
 int ms_use_mode = 0;
 
 static str ms_snd_time_avp_param = {NULL, 0};
-int_str ms_snd_time_avp_name;
-unsigned short ms_snd_time_avp_type;
+avp_name_t ms_snd_time_avp_name;
+avp_flags_t ms_snd_time_avp_type;
 
 static str ms_extra_hdrs_avp_param = {NULL, 0};
-int_str ms_extra_hdrs_avp_name;
-unsigned short ms_extra_hdrs_avp_type;
+avp_name_t ms_extra_hdrs_avp_name;
+avp_flags_t ms_extra_hdrs_avp_type;
 
 str msg_type = str_init("MESSAGE");
 static int ms_skip_notification_flag = -1;
@@ -181,13 +181,12 @@ static cmd_export_t cmds[] = {
 	{"m_store", (cmd_function)m_store1, 0, 0,
 			0, REQUEST_ROUTE | FAILURE_ROUTE},
 	{"m_store", (cmd_function)m_store1, 1, fixup_spve_null,
-			0, REQUEST_ROUTE | FAILURE_ROUTE},
+			fixup_free_spve_null, REQUEST_ROUTE | FAILURE_ROUTE},
 	{"m_store_addrs", (cmd_function)m_store3, 3, fixup_spve_all,
 			fixup_free_spve_all, REQUEST_ROUTE | FAILURE_ROUTE},
 	{"m_dump", (cmd_function)m_dump_2, 0, 0, 0, REQUEST_ROUTE},
-	{"m_dump", (cmd_function)m_dump_2, 0, 0, 0, REQUEST_ROUTE},
 	{"m_dump", (cmd_function)m_dump_2, 1, fixup_spve_null,
-			0, REQUEST_ROUTE},
+			fixup_free_spve_null, REQUEST_ROUTE},
 	{"bind_msilo", (cmd_function)bind_msilo, 1, 0, 0, ANY_ROUTE},
 	{0, 0, 0, 0, 0, 0}
 };

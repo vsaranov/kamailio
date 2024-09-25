@@ -4,7 +4,7 @@
  *
  * The initial version of this code was written by Dragos Vingarzan
  * (dragos(dot)vingarzan(at)fokus(dot)fraunhofer(dot)de and the
- * Fruanhofer Institute. It was and still is maintained in a separate
+ * Fraunhofer FOKUS Institute. It was and still is maintained in a separate
  * branch of the original SER. We are therefore migrating it to
  * Kamailio/SR and look forward to maintaining it from here on out.
  * 2011/2012 Smile Communications, Pty. Ltd.
@@ -14,7 +14,7 @@
  * effort to add full IMS support to Kamailio/SR using a new and
  * improved architecture
  *
- * NB: Alot of this code was originally part of OpenIMSCore,
+ * NB: A lot of this code was originally part of OpenIMSCore,
  * FhG Fokus.
  * Copyright (C) 2004-2006 FhG Fokus
  * Thanks for great work! This is an effort to
@@ -538,6 +538,21 @@ str cscf_get_contact_from_requri(struct sip_msg *msg)
 done:
 	return pu;
 }
+
+/** 
+ * Get the host from the Request URI of the message.
+ * Useful for example on MT, to get the destination from the Request URI, if P-Called-Party-ID is not present.
+ */
+str cscf_get_host_from_requri(struct sip_msg *msg)
+{
+	if(msg->first_line.type != SIP_REQUEST || parse_sip_msg_uri(msg) < 0
+			|| msg->parsed_uri.type == TEL_URI_T) {
+		str empty = {0};
+		return empty;
+	}
+	return msg->parsed_uri.host;
+}
+
 
 /**
  * Finds if the message contains the orig parameter in the first Route header
@@ -1638,7 +1653,7 @@ str *cscf_get_service_route(struct sip_msg *msg, int *size, int is_shm)
 			}
 			x = pkg_reallocxf(x, (*size + k) * sizeof(str));
 			if(!x) {
-				LM_ERR("Error our of pkg memory");
+				LM_ERR("Error out of pkg memory");
 				return 0;
 			}
 			r2 = r;

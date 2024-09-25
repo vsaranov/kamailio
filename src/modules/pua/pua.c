@@ -700,6 +700,11 @@ int update_pua(ua_pres_t *p)
 			ret_code = -1;
 			goto done;
 		}
+		if(uac_r.cb_flags & TMCB_LOCAL_REQUEST_DROP) {
+			shm_free(cb_param);
+			ret_code = 0;
+			goto done;
+		}
 	} else {
 		str met = {"SUBSCRIBE", 9};
 		ua_pres_t *cb_param = NULL;
@@ -1116,9 +1121,10 @@ static ua_pres_t *build_uppubl_cbparam(ua_pres_t *p)
 	publ.pres_uri = p->pres_uri;
 	publ.content_type = p->content_type;
 	publ.id = p->id;
-	publ.expires = (p->desired_expires == 0)
-						   ? -1
-						   : p->desired_expires - (int)time(NULL);
+	publ.expires =
+			(int)((p->desired_expires == 0)
+							? -1
+							: ((long)p->desired_expires - (long)time(NULL)));
 	publ.flag = UPDATE_TYPE;
 	publ.source_flag = p->flag;
 	publ.event = p->event;

@@ -178,8 +178,7 @@ static int mod_child_init(int rank)
 
 	// routing process
 	if(rabbitmq_connect(&amqp_conn) != RABBITMQ_OK) {
-		LM_ERR("FAIL rabbitmq_connect()");
-		return -1;
+		LM_WARN("FAIL rabbitmq_connect()");
 	}
 	LM_DBG("SUCCESS initialization of rabbitmq module in child [%d]\n", rank);
 
@@ -597,19 +596,22 @@ static int rabbitmq_connect(amqp_connection_state_t *conn)
 		return RABBITMQ_ERR_SOCK;
 	}
 
-	if(rmq_amqps_ca_file) {
-		if(amqp_ssl_socket_set_cacert(amqp_sock, rmq_amqps_ca_file)) {
-			LM_ERR("Failed to set CA certificate for amqps connection\n");
-			return RABBITMQ_ERR_SSL_CACERT;
+	if(amqp_info.ssl) { // only valid for amqp_ssl_socket_t
+		if(rmq_amqps_ca_file) {
+			if(amqp_ssl_socket_set_cacert(amqp_sock, rmq_amqps_ca_file)) {
+				LM_ERR("Failed to set CA certificate for amqps connection\n");
+				return RABBITMQ_ERR_SSL_CACERT;
+			}
 		}
-	}
 
 #if AMQP_VERSION_MAJOR == 0 && AMQP_VERSION_MINOR < 8
-	amqp_ssl_socket_set_verify(amqp_sock, (rmq_amqps_ca_file) ? 1 : 0);
+		amqp_ssl_socket_set_verify(amqp_sock, (rmq_amqps_ca_file) ? 1 : 0);
 #else
-	amqp_ssl_socket_set_verify_peer(amqp_sock, (rmq_amqps_ca_file) ? 1 : 0);
-	amqp_ssl_socket_set_verify_hostname(amqp_sock, (rmq_amqps_ca_file) ? 1 : 0);
+		amqp_ssl_socket_set_verify_peer(amqp_sock, (rmq_amqps_ca_file) ? 1 : 0);
+		amqp_ssl_socket_set_verify_hostname(
+				amqp_sock, (rmq_amqps_ca_file) ? 1 : 0);
 #endif
+	}
 
 	ret = amqp_socket_open(amqp_sock, amqp_info.host, amqp_info.port);
 	if(ret != AMQP_STATUS_OK) {

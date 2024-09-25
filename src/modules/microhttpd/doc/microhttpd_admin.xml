@@ -43,7 +43,7 @@
 			<itemizedlist>
 			<listitem>
 			<para>
-				<emphasis>libmicrohhtpd</emphasis> - libmicrohttpd library
+				<emphasis>libmicrohttpd</emphasis> - libmicrohttpd library
 			</para>
 			</listitem>
 			</itemizedlist>
@@ -156,6 +156,11 @@ event_route[microhttpd:request] {
         </title>
         <para>
 			The event route is executed when a new HTTP request is received.
+        </para>
+        <para>
+			Inside it, the $mhttpd(...) group of variables is available, giving
+			access to several attributes of the HTTP request, such as method,
+			URL, data (body) or headers.
         </para>
         <programlisting  format="linespecific">
 ...

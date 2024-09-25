@@ -70,12 +70,14 @@
 		(_d) += (_len);             \
 	} while(0)
 
+extern int tm_headers_mode;
 
 /* Build a local request based on a previous request; main
  * customers of this function are local ACK and local CANCEL
  */
 char *build_local(struct cell *Trans, unsigned int branch, unsigned int *len,
-		char *method, int method_len, str *to, struct cancel_reason *reason)
+		char *method, int method_len, str *to, sip_msg_t *imsg,
+		struct cancel_reason *reason)
 {
 	char *cancel_buf, *p, *via;
 	unsigned int via_len;
@@ -184,6 +186,28 @@ char *build_local(struct cell *Trans, unsigned int branch, unsigned int *len,
 			LM_BUG("unhandled reason cause %d\n", reason->cause);
 	}
 	*len += reason_len;
+	if(imsg != NULL && (tm_headers_mode & TM_CANCEL_HEADERS_COPY)) {
+		for(hdr = imsg->headers; hdr; hdr = hdr->next) {
+			switch(hdr->type) {
+				case HDR_CALLID_T:
+				case HDR_CSEQ_T:
+				case HDR_VIA_T:
+				case HDR_TO_T:
+				case HDR_FROM_T:
+				case HDR_ROUTE_T:
+				case HDR_MAXFORWARDS_T:
+				case HDR_REQUIRE_T:
+				case HDR_PROXYREQUIRE_T:
+				case HDR_CONTENTLENGTH_T:
+				case HDR_REASON_T:
+				case HDR_EOH_T:
+					/* skip these headers - they were added already */
+					break;
+				default:
+					*len += hdr->len;
+			}
+		}
+	}
 	*len += CRLF_LEN; /* end of msg. */
 
 	cancel_buf = shm_malloc(*len + 1);
@@ -255,6 +279,29 @@ char *build_local(struct cell *Trans, unsigned int branch, unsigned int *len,
 			}
 		}
 	}
+	if(imsg != NULL && (tm_headers_mode & TM_CANCEL_HEADERS_COPY)) {
+		for(hdr = imsg->headers; hdr; hdr = hdr->next) {
+			switch(hdr->type) {
+				case HDR_CALLID_T:
+				case HDR_CSEQ_T:
+				case HDR_VIA_T:
+				case HDR_TO_T:
+				case HDR_FROM_T:
+				case HDR_ROUTE_T:
+				case HDR_MAXFORWARDS_T:
+				case HDR_REQUIRE_T:
+				case HDR_PROXYREQUIRE_T:
+				case HDR_CONTENTLENGTH_T:
+				case HDR_REASON_T:
+				case HDR_EOH_T:
+					/* skip these headers - they were added already */
+					break;
+				default:
+					append_str(p, hdr->name.s, hdr->len);
+			}
+		}
+	}
+
 	append_str(p, CRLF, CRLF_LEN); /* msg. end */
 	*p = 0;
 
@@ -274,7 +321,7 @@ error:
  */
 char *build_local_reparse(tm_cell_t *Trans, unsigned int branch,
 		unsigned int *len, char *method, int method_len, str *to,
-		struct cancel_reason *reason)
+		sip_msg_t *imsg, struct cancel_reason *reason)
 {
 	char *invite_buf, *invite_buf_end;
 	char *cancel_buf;
@@ -288,6 +335,7 @@ char *build_local_reparse(tm_cell_t *Trans, unsigned int branch,
 	int hadded = 0;
 	sr_cfgenv_t *cenv = NULL;
 	hdr_flags_t hdr_flags = 0;
+	hdr_field_t *hf = NULL;
 
 	invite_buf = Trans->uac[branch].request.buffer;
 	invite_len = Trans->uac[branch].request.buffer_len;
@@ -345,6 +393,9 @@ char *build_local_reparse(tm_cell_t *Trans, unsigned int branch,
 	to_len = to ? to->len : 0;
 	cancel_buf_len = invite_len + to_len + reason_len;
 
+	if((imsg != NULL) && (tm_headers_mode & TM_CANCEL_HEADERS_COPY)) {
+		cancel_buf_len += imsg->len;
+	}
 	cancel_buf = shm_malloc(sizeof(char) * cancel_buf_len);
 	if(!cancel_buf) {
 		SHM_MEM_ERROR;
@@ -497,6 +548,29 @@ char *build_local_reparse(tm_cell_t *Trans, unsigned int branch,
 							append_str(d, hdr->name.s, hdr->len);
 							if(likely(hdr == reas_last))
 								break;
+						}
+					}
+				}
+				if((imsg != NULL)
+						&& (tm_headers_mode & TM_CANCEL_HEADERS_COPY)) {
+					for(hf = imsg->headers; hf; hf = hf->next) {
+						switch(hf->type) {
+							case HDR_CALLID_T:
+							case HDR_CSEQ_T:
+							case HDR_VIA_T:
+							case HDR_TO_T:
+							case HDR_FROM_T:
+							case HDR_ROUTE_T:
+							case HDR_MAXFORWARDS_T:
+							case HDR_REQUIRE_T:
+							case HDR_PROXYREQUIRE_T:
+							case HDR_CONTENTLENGTH_T:
+							case HDR_REASON_T:
+							case HDR_EOH_T:
+								/* skip these headers - they were added already */
+								break;
+							default:
+								append_str(d, hf->name.s, hf->len);
 						}
 					}
 				}
@@ -1246,7 +1320,8 @@ char *build_dlg_ack(struct sip_msg *rpl, struct cell *Trans,
 
 	/* headers */
 	*len += Trans->from_hdr.len + Trans->callid_hdr.len + to->len
-			+ Trans->cseq_hdr_n.len + 1 + ACK_LEN + CRLF_LEN;
+			+ Trans->cseq_hdr_n.len + 1 + ACK_LEN + MAXFWD_HEADER_LEN
+			+ CRLF_LEN;
 
 	/* copy'n'paste Route headers */
 
@@ -1290,6 +1365,8 @@ char *build_dlg_ack(struct sip_msg *rpl, struct cell *Trans,
 	append_str(p, Trans->from_hdr.s, Trans->from_hdr.len);
 	append_str(p, Trans->callid_hdr.s, Trans->callid_hdr.len);
 	append_str(p, to->s, to->len);
+
+	append_str(p, MAXFWD_HEADER, MAXFWD_HEADER_LEN);
 
 	append_str(p, Trans->cseq_hdr_n.s, Trans->cseq_hdr_n.len);
 	append_str(p, " ", 1);

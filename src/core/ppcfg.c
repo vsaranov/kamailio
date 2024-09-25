@@ -281,6 +281,7 @@ void pp_ifdef_level_error(void)
 				   " %d more #!endif as #!if[n]def\n",
 					(_pp_ifdef_level) * -1);
 		}
+		LM_ERR("note: #!endif requires EoL after it, even before EoF\n");
 	}
 }
 
@@ -510,6 +511,8 @@ char *pp_defexp_eval(char *exval, int exlen, int qmode)
 		LM_DBG("expression string result: [%s]\n", result->param.stz.sval);
 		sval.s = result->param.stz.sval;
 		sval.len = strlen(result->param.stz.sval);
+	} else {
+		goto done;
 	}
 
 	if(qmode == 1) {

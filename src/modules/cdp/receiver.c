@@ -4,7 +4,7 @@
  *
  * The initial version of this code was written by Dragos Vingarzan
  * (dragos(dot)vingarzan(at)fokus(dot)fraunhofer(dot)de and the
- * Fruanhofer Institute. It was and still is maintained in a separate
+ * Fraunhofer FOKUS Institute. It was and still is maintained in a separate
  * branch of the original SER. We are therefore migrating it to
  * Kamailio/SR and look forward to maintaining it from here on out.
  * 2011/2012 Smile Communications, Pty. Ltd.
@@ -14,7 +14,7 @@
  * effort to add full IMS support to Kamailio/SR using a new and
  * improved architecture
  *
- * NB: Alot of this code was originally part of OpenIMSCore,
+ * NB: A lot of this code was originally part of OpenIMSCore,
  * FhG Fokus.
  * Copyright (C) 2004-2006 FhG Fokus
  * Thanks for great work! This is an effort to
@@ -605,7 +605,7 @@ static inline int do_receive(serviced_peer_t *sp)
 			version = (unsigned char)(sp->buf[0]);
 			if(version != 1) {
 				LM_ERR("do_receive(): [%.*s] Received Unknown version [%d]\n",
-						sp->p->fqdn.len, sp->p->fqdn.s,
+						sp->p ? sp->p->fqdn.len : 0, sp->p ? sp->p->fqdn.s : 0,
 						(unsigned char)sp->buf[0]);
 				goto error_and_reset;
 			} else {

@@ -109,6 +109,7 @@ extern int ksr_tcp_script_mode;
 #ifdef USE_TLS
 extern int tls_disable;
 extern unsigned short tls_port_no;
+extern int ksr_tls_threads_mode;
 #endif
 #ifdef USE_SCTP
 extern int sctp_disable;
@@ -240,6 +241,7 @@ extern int ksr_local_rport;
 
 extern int ksr_rpc_exec_delta;
 
+extern int ksr_udp_receiver_mode;
 extern int ksr_msg_recv_max_size;
 extern int ksr_tcp_msg_read_timeout;
 extern int ksr_tcp_msg_data_timeout;

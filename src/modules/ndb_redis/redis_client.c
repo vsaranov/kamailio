@@ -233,15 +233,15 @@ int redisc_init(void)
 		}
 
 #ifdef WITH_SSL
- 		if(enable_ssl) {
- 			/* Create SSL context*/
- 			redisInitOpenSSL();
- 			rsrv->sslCtxRedis = redisCreateSSLContext(
+		if(enable_ssl) {
+			/* Create SSL context*/
+			redisInitOpenSSL();
+			rsrv->sslCtxRedis = redisCreateSSLContext(
 					NULL, ndb_redis_ca_path, NULL, NULL, NULL, NULL);
- 			if(rsrv->sslCtxRedis == NULL) {
+			if(rsrv->sslCtxRedis == NULL) {
 				LM_ERR("Unable to create Redis TLS Context.\n");
- 			}
-  		}
+			}
+		}
 #endif
 
 		if(sock != 0) {
@@ -260,10 +260,10 @@ int redisc_init(void)
 		}
 
 #ifdef WITH_SSL
- 		if(enable_ssl) {
- 			/* Negotiate SSL/TLS handshake*/
- 			redisInitiateSSLWithContext(rsrv->ctxRedis, rsrv->sslCtxRedis);
- 		}
+		if(enable_ssl) {
+			/* Negotiate SSL/TLS handshake*/
+			redisInitiateSSLWithContext(rsrv->ctxRedis, rsrv->sslCtxRedis);
+		}
 #endif
 
 		LOG(ndb_redis_debug, "rsrv->ctxRedis = %p\n", rsrv->ctxRedis);
@@ -498,10 +498,10 @@ int redisc_reconnect_server(redisc_server_t *rsrv)
 					pass, sizeof(pass) - 1, "%.*s", pit->body.len, pit->body.s);
 			haspass = 1;
 #ifdef WITH_SSL
- 		} else if(pit->name.len == 3 && strncmp(pit->name.s, "tls", 3) == 0) {
+		} else if(pit->name.len == 3 && strncmp(pit->name.s, "tls", 3) == 0) {
 			snprintf(
 					pass, sizeof(pass) - 1, "%.*s", pit->body.len, pit->body.s);
- 			if(str2int(&pit->body, &enable_ssl) < 0)
+			if(str2int(&pit->body, &enable_ssl) < 0)
 				enable_ssl = 0;
 #endif
 		} else if(pit->name.len == 14
@@ -533,13 +533,14 @@ int redisc_reconnect_server(redisc_server_t *rsrv)
 		for(i = 0; i < sentinels_count; i++) {
 			char *sentinelAddr = sentinels[i];
 			char *pos;
+			int srvfound = 0;
 			redisContext *redis;
 			redisReply *res, *res2;
 
 			port = 6379;
 			if((pos = strchr(sentinelAddr, ':')) != NULL) {
 				port = atoi(pos + 1);
-				pos[i] = '\0';
+				pos[0] = '\0';
 			}
 
 			redis = redisConnectWithTimeout(sentinelAddr, port, tv_conn);
@@ -555,6 +556,7 @@ int redisc_reconnect_server(redisc_server_t *rsrv)
 						port = atoi(res->element[1]->str);
 						LOG(ndb_redis_debug, "sentinel replied: %s:%d\n", addr,
 								port);
+						srvfound = 1;
 					}
 				} else {
 					res = redisCommand(
@@ -578,8 +580,12 @@ int redisc_reconnect_server(redisc_server_t *rsrv)
 						}
 						LOG(ndb_redis_debug, "slave for %s: %s:%d\n",
 								sentinel_group, addr, port);
+						srvfound = 1;
 					}
 				}
+			}
+			if(srvfound == 1) {
+				break;
 			}
 		}
 	}
@@ -880,11 +886,11 @@ srv_disabled:
 int check_cluster_reply(redisReply *reply, redisc_server_t **rsrv)
 {
 	redisc_server_t *rsrv_new;
-	char buffername[100];
+	char buffername[512];
 	unsigned int port;
 	str addr = {0, 0}, tmpstr = {0, 0}, name = {0, 0};
 	int server_len = 0;
-	char spec_new[100];
+	char spec_new[512];
 
 	if(redis_cluster_param) {
 		LM_DBG("Redis replied: \"%.*s\"\n", (int)reply->len, reply->str);
@@ -938,12 +944,13 @@ int check_cluster_reply(redisReply *reply, redisc_server_t **rsrv)
 						addr.len, addr.s, port);
 
 				if(server_len < 0 || server_len > sizeof(spec_new) - 1) {
-					LM_ERR("failed to print server spec string\n");
+					LM_ERR("failed to print server spec string (%d)\n",
+							server_len);
 					return 0;
 				}
 				server_new = (char *)pkg_malloc(server_len + 1);
 				if(server_new == NULL) {
-					LM_ERR("Error allocating pkg mem\n");
+					PKG_MEM_ERROR;
 					return 0;
 				}
 
@@ -963,7 +970,7 @@ int check_cluster_reply(redisReply *reply, redisc_server_t **rsrv)
 									name.len, name.s);
 							return 1;
 						} else {
-							LM_ERR("ERROR connecting to the new server with "
+							LM_ERR("failed connecting to the new server with "
 								   "name: %.*s\n",
 									name.len, name.s);
 							return 0;

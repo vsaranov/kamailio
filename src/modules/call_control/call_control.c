@@ -85,8 +85,8 @@ typedef int Bool;
 typedef struct AVP_Param
 {
 	str spec;
-	int_str name;
-	unsigned short type;
+	avp_name_t name;
+	avp_flags_t type;
 } AVP_Param;
 
 typedef struct AVP_List
@@ -146,7 +146,6 @@ static AVP_Param sip_application_avp = {
 
 
 struct dlg_binds dlg_api;
-static int dialog_flag = -1;
 
 AVP_List *cc_init_avps = NULL, *cc_start_avps = NULL, *cc_stop_avps = NULL;
 
@@ -406,7 +405,7 @@ static Bool has_to_tag(struct sip_msg *msg)
 // Get canonical request URI
 static str get_canonical_request_uri(struct sip_msg *msg)
 {
-	int_str value;
+	avp_value_t value;
 
 	if(!search_first_avp(canonical_uri_avp.type | AVP_VAL_STR,
 			   canonical_uri_avp.name, &value, NULL)
@@ -422,7 +421,7 @@ static str get_canonical_request_uri(struct sip_msg *msg)
 // Get caller signaling IP
 static str get_signaling_ip(struct sip_msg *msg)
 {
-	int_str value;
+	avp_value_t value;
 
 	if(!search_first_avp(signaling_ip_avp.type | AVP_VAL_STR,
 			   signaling_ip_avp.name, &value, NULL)
@@ -438,7 +437,7 @@ static str get_signaling_ip(struct sip_msg *msg)
 // Get SIP application type
 static str get_sip_application(struct sip_msg *msg)
 {
-	int_str value;
+	avp_value_t value;
 
 	if(!search_first_avp(sip_application_avp.type | AVP_VAL_STR,
 			   sip_application_avp.name, &value, NULL)
@@ -455,7 +454,8 @@ static str get_diverter(struct sip_msg *msg)
 {
 	struct hdr_field *header;
 	dig_cred_t *credentials;
-	int_str avpname, avpvalue;
+	avp_name_t avpname;
+	avp_value_t avpvalue;
 	static str diverter;
 
 	diverter.s = "None";
@@ -1079,7 +1079,6 @@ static int ki_call_control(sip_msg_t *msg)
 	if(result == 1) {
 		// A call with a time limit that will be traced by callcontrol
 		msg->msg_flags |= FL_USE_CALL_CONTROL;
-		setflag(msg, dialog_flag); // have the dialog module trace this dialog
 	}
 
 	return result;
@@ -1169,20 +1168,6 @@ static int mod_init(void)
 		LOG(L_CRIT, "cannot load the dialog module API\n");
 		return -1;
 	}
-
-	// load dlg_flag and default_timeout parameters from the dialog module
-	param = find_param_export(
-			find_module_by_name("dialog"), "dlg_flag", INT_PARAM, &type);
-	if(!param) {
-		LOG(L_CRIT, "cannot find dlg_flag parameter in the dialog module\n");
-		return -1;
-	}
-	if(type != INT_PARAM) {
-		LOG(L_CRIT, "dlg_flag parameter found but with wrong type: %d\n", type);
-		return -1;
-	}
-
-	dialog_flag = *param;
 
 	// register dialog creation callback
 	if(dlg_api.register_dlgcb(NULL, DLGCB_CREATED, __dialog_created, NULL, NULL)

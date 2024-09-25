@@ -66,6 +66,14 @@ static int w_sdp_content_sloppy(sip_msg_t *msg, char *foo, char *bar);
 static int w_sdp_with_ice(sip_msg_t *msg, char *foo, char *bar);
 static int w_sdp_get_line_startswith(sip_msg_t *msg, char *foo, char *bar);
 
+static int w_sdp_iterator_start(sip_msg_t *msg, char *piname, char *p2);
+static int w_sdp_iterator_next(sip_msg_t *msg, char *piname, char *p2);
+static int w_sdp_iterator_end(sip_msg_t *msg, char *piname, char *p2);
+static int w_sdp_iterator_rm(sip_msg_t *msg, char *piname, char *p2);
+static int w_sdp_iterator_append(sip_msg_t *msg, char *piname, char *ptext);
+static int w_sdp_iterator_insert(sip_msg_t *msg, char *piname, char *ptext);
+
+
 static int sdp_get_sess_version(
 		sip_msg_t *msg, str *sess_version, long *sess_version_num);
 static int sdp_set_sess_version(
@@ -77,80 +85,105 @@ static int pv_set_sdp(
 		sip_msg_t *msg, pv_param_t *param, int op, pv_value_t *res);
 static int pv_parse_sdp_name(pv_spec_p sp, str *in);
 
+static void sdp_iterator_init(void);
+static int pv_parse_sdp_iterator_name(pv_spec_t *sp, str *in);
+static int pv_get_sdp_iterator_value(
+		sip_msg_t *msg, pv_param_t *param, pv_value_t *res);
+
 static int mod_init(void);
 
+/* clang-format off */
 static cmd_export_t cmds[] = {
-		{"sdp_remove_line_by_prefix", (cmd_function)w_sdp_remove_line_by_prefix,
-				1, fixup_spve_null, 0, ANY_ROUTE},
-		{"sdp_remove_line_by_prefix", (cmd_function)w_sdp_remove_line_by_prefix,
-				2, fixup_spve_spve, 0, ANY_ROUTE},
-		{"sdp_remove_codecs_by_id", (cmd_function)w_sdp_remove_codecs_by_id, 1,
-				fixup_spve_null, 0, ANY_ROUTE},
-		{"sdp_remove_codecs_by_id", (cmd_function)w_sdp_remove_codecs_by_id, 2,
-				fixup_spve_spve, 0, ANY_ROUTE},
-		{"sdp_remove_codecs_by_name", (cmd_function)w_sdp_remove_codecs_by_name,
-				1, fixup_spve_null, 0, ANY_ROUTE},
-		{"sdp_remove_codecs_by_name", (cmd_function)w_sdp_remove_codecs_by_name,
-				2, fixup_spve_spve, 0, ANY_ROUTE},
-		{"sdp_keep_codecs_by_id", (cmd_function)w_sdp_keep_codecs_by_id, 1,
-				fixup_spve_null, 0, ANY_ROUTE},
-		{"sdp_keep_codecs_by_id", (cmd_function)w_sdp_keep_codecs_by_id, 2,
-				fixup_spve_spve, 0, ANY_ROUTE},
-		{"sdp_keep_codecs_by_name", (cmd_function)w_sdp_keep_codecs_by_name, 1,
-				fixup_spve_null, 0, ANY_ROUTE},
-		{"sdp_keep_codecs_by_name", (cmd_function)w_sdp_keep_codecs_by_name, 2,
-				fixup_spve_spve, 0, ANY_ROUTE},
-		{"sdp_with_media", (cmd_function)w_sdp_with_media, 1, fixup_spve_null,
-				0, ANY_ROUTE},
-		{"sdp_with_active_media", (cmd_function)w_sdp_with_active_media, 1,
-				fixup_spve_null, 0, ANY_ROUTE},
-		{"sdp_remove_media", (cmd_function)w_sdp_remove_media, 1,
-				fixup_spve_null, 0, ANY_ROUTE},
-		{"sdp_with_transport", (cmd_function)w_sdp_with_transport, 1,
-				fixup_spve_null, 0, ANY_ROUTE},
-		{"sdp_with_transport_like", (cmd_function)w_sdp_with_transport_like, 1,
-				fixup_spve_null, 0, ANY_ROUTE},
-		{"sdp_remove_transport", (cmd_function)w_sdp_remove_transport, 1,
-				fixup_spve_null, 0, ANY_ROUTE},
-		{"sdp_transport", (cmd_function)w_sdp_transport, 1, 0, 0, ANY_ROUTE},
-		{"sdp_with_codecs_by_id", (cmd_function)w_sdp_with_codecs_by_id, 1,
-				fixup_spve_null, 0, ANY_ROUTE},
-		{"sdp_with_codecs_by_name", (cmd_function)w_sdp_with_codecs_by_name, 1,
-				fixup_spve_null, 0, ANY_ROUTE},
-		{"sdp_print", (cmd_function)w_sdp_print, 1, fixup_igp_null, 0,
-				ANY_ROUTE},
-		{"sdp_get", (cmd_function)w_sdp_get, 1, 0, 0, ANY_ROUTE},
-		{"sdp_content", (cmd_function)w_sdp_content, 0, 0, 0, ANY_ROUTE},
-		{"sdp_content", (cmd_function)w_sdp_content_sloppy, 1, 0, 0, ANY_ROUTE},
-		{"sdp_with_ice", (cmd_function)w_sdp_with_ice, 0, 0, 0, ANY_ROUTE},
-		{"sdp_get_line_startswith", (cmd_function)w_sdp_get_line_startswith, 2,
-				fixup_none_spve, 0, ANY_ROUTE},
-		{"sdp_get_address_family", (cmd_function)w_sdp_get_address_family, 0, 0,
-				0, ANY_ROUTE},
-		{"bind_sdpops", (cmd_function)bind_sdpops, 1, 0, 0, 0},
-		{0, 0, 0, 0, 0, 0}};
+	{"sdp_remove_line_by_prefix", (cmd_function)w_sdp_remove_line_by_prefix,
+			1, fixup_spve_null, 0, ANY_ROUTE},
+	{"sdp_remove_line_by_prefix", (cmd_function)w_sdp_remove_line_by_prefix,
+			2, fixup_spve_spve, 0, ANY_ROUTE},
+	{"sdp_remove_codecs_by_id", (cmd_function)w_sdp_remove_codecs_by_id, 1,
+			fixup_spve_null, 0, ANY_ROUTE},
+	{"sdp_remove_codecs_by_id", (cmd_function)w_sdp_remove_codecs_by_id, 2,
+			fixup_spve_spve, 0, ANY_ROUTE},
+	{"sdp_remove_codecs_by_name", (cmd_function)w_sdp_remove_codecs_by_name,
+			1, fixup_spve_null, 0, ANY_ROUTE},
+	{"sdp_remove_codecs_by_name", (cmd_function)w_sdp_remove_codecs_by_name,
+			2, fixup_spve_spve, 0, ANY_ROUTE},
+	{"sdp_keep_codecs_by_id", (cmd_function)w_sdp_keep_codecs_by_id, 1,
+			fixup_spve_null, 0, ANY_ROUTE},
+	{"sdp_keep_codecs_by_id", (cmd_function)w_sdp_keep_codecs_by_id, 2,
+			fixup_spve_spve, 0, ANY_ROUTE},
+	{"sdp_keep_codecs_by_name", (cmd_function)w_sdp_keep_codecs_by_name, 1,
+			fixup_spve_null, 0, ANY_ROUTE},
+	{"sdp_keep_codecs_by_name", (cmd_function)w_sdp_keep_codecs_by_name, 2,
+			fixup_spve_spve, 0, ANY_ROUTE},
+	{"sdp_with_media", (cmd_function)w_sdp_with_media, 1, fixup_spve_null,
+			0, ANY_ROUTE},
+	{"sdp_with_active_media", (cmd_function)w_sdp_with_active_media, 1,
+			fixup_spve_null, 0, ANY_ROUTE},
+	{"sdp_remove_media", (cmd_function)w_sdp_remove_media, 1,
+			fixup_spve_null, 0, ANY_ROUTE},
+	{"sdp_with_transport", (cmd_function)w_sdp_with_transport, 1,
+			fixup_spve_null, 0, ANY_ROUTE},
+	{"sdp_with_transport_like", (cmd_function)w_sdp_with_transport_like, 1,
+			fixup_spve_null, 0, ANY_ROUTE},
+	{"sdp_remove_transport", (cmd_function)w_sdp_remove_transport, 1,
+			fixup_spve_null, 0, ANY_ROUTE},
+	{"sdp_transport", (cmd_function)w_sdp_transport, 1, 0, 0, ANY_ROUTE},
+	{"sdp_with_codecs_by_id", (cmd_function)w_sdp_with_codecs_by_id, 1,
+			fixup_spve_null, 0, ANY_ROUTE},
+	{"sdp_with_codecs_by_name", (cmd_function)w_sdp_with_codecs_by_name, 1,
+			fixup_spve_null, 0, ANY_ROUTE},
+	{"sdp_print", (cmd_function)w_sdp_print, 1, fixup_igp_null, 0,
+			ANY_ROUTE},
+	{"sdp_get", (cmd_function)w_sdp_get, 1, 0, 0, ANY_ROUTE},
+	{"sdp_content", (cmd_function)w_sdp_content, 0, 0, 0, ANY_ROUTE},
+	{"sdp_content", (cmd_function)w_sdp_content_sloppy, 1, 0, 0, ANY_ROUTE},
+	{"sdp_with_ice", (cmd_function)w_sdp_with_ice, 0, 0, 0, ANY_ROUTE},
+	{"sdp_get_line_startswith", (cmd_function)w_sdp_get_line_startswith, 2,
+			fixup_none_spve, 0, ANY_ROUTE},
+	{"sdp_get_address_family", (cmd_function)w_sdp_get_address_family, 0, 0,
+			0, ANY_ROUTE},
+
+	{"sdp_iterator_start", w_sdp_iterator_start, 1, fixup_spve_null,
+			fixup_free_spve_null, ANY_ROUTE},
+	{"sdp_iterator_next", w_sdp_iterator_next, 1, fixup_spve_null,
+			fixup_free_spve_null, ANY_ROUTE},
+	{"sdp_iterator_end", w_sdp_iterator_end, 1, fixup_spve_null,
+			fixup_free_spve_null, ANY_ROUTE},
+	{"sdp_iterator_rm", w_sdp_iterator_rm, 1, fixup_spve_null,
+			fixup_free_spve_null, ANY_ROUTE},
+	{"sdp_iterator_append", w_sdp_iterator_append, 2, fixup_spve_spve,
+			fixup_free_spve_spve, ANY_ROUTE},
+	{"sdp_iterator_insert", w_sdp_iterator_insert, 2, fixup_spve_spve,
+			fixup_free_spve_spve, ANY_ROUTE},
+
+	{"bind_sdpops", (cmd_function)bind_sdpops, 1, 0, 0, 0},
+	{0, 0, 0, 0, 0, 0}
+};
 
 static pv_export_t mod_pvs[] = {
-		{{"sdp", (sizeof("sdp") - 1)}, /* */
-				PVT_OTHER, pv_get_sdp, pv_set_sdp, pv_parse_sdp_name, 0, 0, 0},
+	{{"sdp", (sizeof("sdp") - 1)}, /* */
+			PVT_OTHER, pv_get_sdp, pv_set_sdp, pv_parse_sdp_name, 0, 0, 0},
+	{{"sdpitval", sizeof("sdpitval") - 1}, PVT_OTHER,
+		pv_get_sdp_iterator_value, 0, pv_parse_sdp_iterator_name, 0, 0, 0},
 
-		{{0, 0}, 0, 0, 0, 0, 0, 0, 0}};
+	{{0, 0}, 0, 0, 0, 0, 0, 0, 0}
+};
 
 static param_export_t params[] = {{0, 0, 0}};
 
 /** module exports */
 struct module_exports exports = {
-		"sdpops",		 /* module name */
-		DEFAULT_DLFLAGS, /* dlopen flags */
-		cmds,			 /* cmd exports */
-		params,			 /* param exports */
-		0,				 /* RPC method exports */
-		mod_pvs,		 /* exported pseudo-variables */
-		0,				 /* response handling function */
-		mod_init,		 /* module initialization function */
-		0,				 /* per-child init function */
-		0				 /* module destroy function */
+	"sdpops",		 /* module name */
+	DEFAULT_DLFLAGS, /* dlopen flags */
+	cmds,			 /* cmd exports */
+	params,			 /* param exports */
+	0,				 /* RPC method exports */
+	mod_pvs,		 /* exported pseudo-variables */
+	0,				 /* response handling function */
+	mod_init,		 /* module initialization function */
+	0,				 /* per-child init function */
+	0				 /* module destroy function */
 };
+/* clang-format on */
 
 /**
  *
@@ -158,6 +191,7 @@ struct module_exports exports = {
 static int mod_init(void)
 {
 	LM_DBG("sdpops module loaded\n");
+	sdp_iterator_init();
 	return 0;
 }
 
@@ -1167,9 +1201,9 @@ static int sdp_with_transport(sip_msg_t *msg, str *transport, int like)
  */
 static int sdp_transport_helper(sip_msg_t *msg, char *avp)
 {
-	int_str avp_val;
-	int_str avp_name;
-	static unsigned short avp_type = 0;
+	avp_value_t avp_val;
+	avp_name_t avp_name;
+	static avp_flags_t avp_type = 0;
 	str s;
 	pv_spec_t *avp_spec = NULL;
 	int sdp_session_num;
@@ -1599,9 +1633,9 @@ static int w_sdp_print(sip_msg_t *msg, char *level, char *bar)
 static int sdp_get_helper(sip_msg_t *msg, char *avp)
 {
 	sdp_info_t *sdp = NULL;
-	int_str avp_val;
-	int_str avp_name;
-	static unsigned short avp_type = 0;
+	avp_value_t avp_val;
+	avp_name_t avp_name;
+	static avp_flags_t avp_type = 0;
 	str s;
 	pv_spec_t *avp_spec = NULL;
 	int sdp_missing = 1;
@@ -1780,10 +1814,10 @@ static int ki_sdp_get_line_startswith(sip_msg_t *msg, str *aname, str *sline)
 	str body = {NULL, 0};
 	str line = {NULL, 0};
 	char *p = NULL;
-	int_str avp_val;
-	int_str avp_name;
+	avp_value_t avp_val;
+	avp_name_t avp_name;
 	pv_spec_t *avp_spec = NULL;
-	static unsigned short avp_type = 0;
+	static avp_flags_t avp_type = 0;
 	int sdp_missing = 1;
 
 	if(sline == NULL || sline->len <= 0) {
@@ -2028,11 +2062,56 @@ int bind_sdpops(struct sdpops_binds *sob)
 /**
  *
  */
+int sdpops_attr_val(str *payload, str *attr, str *val)
+{
+	char *sline;
+	char *eline;
+
+	val->s = NULL;
+	val->len = 0;
+	sline = find_sdp_line_start(
+			payload->s, payload->s + payload->len, attr->s[0], 0);
+	while(sline != NULL) {
+		/* find EoL or EoData */
+		eline = sline;
+		while(eline < payload->s + payload->len) {
+			if(*eline == '\r' || *eline == '\n') {
+				break;
+			}
+			eline++;
+		}
+		if(eline - sline > attr->len) {
+			if(strncmp(sline, attr->s, attr->len) == 0) {
+				if(attr->s[attr->len - 1] == ':') {
+					val->s = sline + attr->len;
+				} else if(sline[attr->len] == ':') {
+					val->s = sline + attr->len + 1;
+				}
+				if(val->s != NULL) {
+					val->len = eline - val->s;
+					return 0;
+				}
+			}
+		}
+		sline = find_next_sdp_line(
+				sline, payload->s + payload->len, attr->s[0], NULL);
+	}
+	return -1;
+}
+
+/**
+ *
+ */
 static int pv_get_sdp(sip_msg_t *msg, pv_param_t *param, pv_value_t *res)
 {
 	sdp_info_t *sdp = NULL;
 	str sess_version = STR_NULL;
 	long sess_version_num = 0;
+	unsigned int uport = 0;
+	static char uport_buf[INT2STR_MAX_LEN];
+	str s = STR_NULL;
+	str sattr = STR_NULL;
+	str sval = STR_NULL;
 
 	if(msg == NULL || param == NULL)
 		return -1;
@@ -2049,19 +2128,193 @@ static int pv_get_sdp(sip_msg_t *msg, pv_param_t *param, pv_value_t *res)
 	}
 
 	switch(param->pvn.u.isname.name.n) {
-
-			/* body */
 		case 0:
+			/* body */
 			LM_DBG("param->pvn.u.isname.name.n=0\n");
 			return pv_get_strval(msg, param, res, &sdp->raw_sdp);
-			/* sess_version */
 		case 1:
+			/* sess_version */
 			if(sdp_get_sess_version(msg, &sess_version, &sess_version_num)
 					== 1) {
 				if(sess_version.len > 0 && sess_version.s != NULL) {
 					return pv_get_intstrval(
 							msg, param, res, sess_version_num, &sess_version);
 				}
+			}
+			return pv_get_null(msg, param, res);
+		case 2:
+			/* c:ip - connection ip */
+			if(sdp->sessions == NULL) {
+				return pv_get_null(msg, param, res);
+			}
+			if(sdp->sessions->streams == NULL) {
+				if(sdp->sessions->ip_addr.s != NULL
+						&& sdp->sessions->ip_addr.len > 0) {
+					return pv_get_strval(
+							msg, param, res, &sdp->sessions->ip_addr);
+				} else {
+					return pv_get_null(msg, param, res);
+				}
+			} else {
+				if(sdp->sessions->streams->ip_addr.s != NULL
+						&& sdp->sessions->streams->ip_addr.len > 0) {
+					return pv_get_strval(
+							msg, param, res, &sdp->sessions->streams->ip_addr);
+				} else {
+					if(sdp->sessions->ip_addr.s != NULL
+							&& sdp->sessions->ip_addr.len > 0) {
+						return pv_get_strval(
+								msg, param, res, &sdp->sessions->ip_addr);
+					} else {
+						return pv_get_null(msg, param, res);
+					}
+				}
+			}
+		case 3:
+			/* o:ip - origin ip */
+			if(sdp->sessions == NULL) {
+				return pv_get_null(msg, param, res);
+			}
+			if(sdp->sessions->o_ip_addr.s != NULL
+					&& sdp->sessions->o_ip_addr.len > 0) {
+				return pv_get_strval(
+						msg, param, res, &sdp->sessions->o_ip_addr);
+			}
+			return pv_get_null(msg, param, res);
+		case 4:
+			/* m0:rtp:port */
+			if(sdp->sessions == NULL) {
+				return pv_get_null(msg, param, res);
+			}
+			if(sdp->sessions->streams == NULL) {
+				return pv_get_null(msg, param, res);
+			}
+			if(sdp->sessions->streams->port.s != NULL
+					&& sdp->sessions->streams->port.len > 0) {
+				return pv_get_strval(
+						msg, param, res, &sdp->sessions->streams->port);
+			}
+			return pv_get_null(msg, param, res);
+		case 5:
+			/* m0:rtcp:port */
+			if(sdp->sessions == NULL) {
+				return pv_get_null(msg, param, res);
+			}
+			if(sdp->sessions->streams == NULL) {
+				return pv_get_null(msg, param, res);
+			}
+			if(sdp->sessions->streams->rtcp_port.s != NULL
+					&& sdp->sessions->streams->rtcp_port.len > 0) {
+				return pv_get_strval(
+						msg, param, res, &sdp->sessions->streams->rtcp_port);
+			}
+			if(sdp->sessions->streams->port.s != NULL
+					&& sdp->sessions->streams->port.len > 0) {
+				str2int(&sdp->sessions->streams->port, &uport);
+				uport++;
+				s.s = int2strbuf(uport, uport_buf, INT2STR_MAX_LEN, &s.len);
+				return pv_get_strval(msg, param, res, &s);
+			}
+			return pv_get_null(msg, param, res);
+		case 6:
+			/* c:af - connection address family */
+			if(sdp->sessions == NULL) {
+				return pv_get_null(msg, param, res);
+			}
+			if(sdp->sessions->streams == NULL) {
+				if(sdp->sessions->ip_addr.s != NULL
+						&& sdp->sessions->ip_addr.len > 0) {
+					return pv_get_sintval(msg, param, res, sdp->sessions->pf);
+				} else {
+					return pv_get_null(msg, param, res);
+				}
+			} else {
+				if(sdp->sessions->streams->ip_addr.s != NULL
+						&& sdp->sessions->streams->ip_addr.len > 0) {
+					return pv_get_sintval(
+							msg, param, res, sdp->sessions->streams->pf);
+				} else {
+					if(sdp->sessions->ip_addr.s != NULL
+							&& sdp->sessions->ip_addr.len > 0) {
+						return pv_get_sintval(
+								msg, param, res, sdp->sessions->pf);
+					} else {
+						return pv_get_null(msg, param, res);
+					}
+				}
+			}
+		case 7:
+			/* m0:raw - all (raw) lines for m0 stream */
+			if(sdp->sessions == NULL) {
+				return pv_get_null(msg, param, res);
+			}
+			if(sdp->sessions->streams == NULL) {
+				return pv_get_null(msg, param, res);
+			}
+			if(sdp->sessions->streams->raw_stream.s != NULL
+					&& sdp->sessions->streams->raw_stream.len > 0) {
+				return pv_get_strval(
+						msg, param, res, &sdp->sessions->streams->raw_stream);
+			}
+			return pv_get_null(msg, param, res);
+		case 8:
+			/* m0:b:AS */
+			if(sdp->sessions == NULL) {
+				return pv_get_null(msg, param, res);
+			}
+			if(sdp->sessions->streams == NULL) {
+				return pv_get_null(msg, param, res);
+			}
+			if(sdp->sessions->streams->raw_stream.s != NULL
+					&& sdp->sessions->streams->raw_stream.len > 0) {
+				sattr.s = "b=AS:";
+				sattr.len = 5;
+				if(sdpops_attr_val(
+						   &sdp->sessions->streams->raw_stream, &sattr, &sval)
+						< 0) {
+					return pv_get_null(msg, param, res);
+				}
+				return pv_get_strval(msg, param, res, &sval);
+			}
+			return pv_get_null(msg, param, res);
+		case 9:
+			/* m0:b:RR */
+			if(sdp->sessions == NULL) {
+				return pv_get_null(msg, param, res);
+			}
+			if(sdp->sessions->streams == NULL) {
+				return pv_get_null(msg, param, res);
+			}
+			if(sdp->sessions->streams->raw_stream.s != NULL
+					&& sdp->sessions->streams->raw_stream.len > 0) {
+				sattr.s = "b=RR:";
+				sattr.len = 5;
+				if(sdpops_attr_val(
+						   &sdp->sessions->streams->raw_stream, &sattr, &sval)
+						< 0) {
+					return pv_get_null(msg, param, res);
+				}
+				return pv_get_strval(msg, param, res, &sval);
+			}
+			return pv_get_null(msg, param, res);
+		case 10:
+			/* m0:b:RS */
+			if(sdp->sessions == NULL) {
+				return pv_get_null(msg, param, res);
+			}
+			if(sdp->sessions->streams == NULL) {
+				return pv_get_null(msg, param, res);
+			}
+			if(sdp->sessions->streams->raw_stream.s != NULL
+					&& sdp->sessions->streams->raw_stream.len > 0) {
+				sattr.s = "b=RS:";
+				sattr.len = 5;
+				if(sdpops_attr_val(
+						   &sdp->sessions->streams->raw_stream, &sattr, &sval)
+						< 0) {
+					return pv_get_null(msg, param, res);
+				}
+				return pv_get_strval(msg, param, res, &sval);
 			}
 			return pv_get_null(msg, param, res);
 
@@ -2107,15 +2360,51 @@ static int pv_parse_sdp_name(pv_spec_p sp, str *in)
 		return -1;
 
 	switch(in->len) {
+		case 3:
+			if(strncmp(in->s, "raw", 3) == 0)
+				sp->pvp.pvn.u.isname.name.n = 0;
+			else
+				goto error;
+			break;
 		case 4:
 			if(strncmp(in->s, "body", 4) == 0)
 				sp->pvp.pvn.u.isname.name.n = 0;
+			else if(strncmp(in->s, "c:ip", 4) == 0)
+				sp->pvp.pvn.u.isname.name.n = 2;
+			else if(strncmp(in->s, "c:af", 4) == 0)
+				sp->pvp.pvn.u.isname.name.n = 6;
+			else if(strncmp(in->s, "o:ip", 4) == 0)
+				sp->pvp.pvn.u.isname.name.n = 3;
+			else
+				goto error;
+			break;
+		case 6:
+			if(strncmp(in->s, "m0:raw", 6) == 0)
+				sp->pvp.pvn.u.isname.name.n = 7;
+			else
+				goto error;
+			break;
+		case 7:
+			if(strncmp(in->s, "m0:b:AS", 7) == 0)
+				sp->pvp.pvn.u.isname.name.n = 8;
+			else if(strncmp(in->s, "m0:b:RR", 7) == 0)
+				sp->pvp.pvn.u.isname.name.n = 9;
+			else if(strncmp(in->s, "m0:b:RS", 7) == 0)
+				sp->pvp.pvn.u.isname.name.n = 10;
+			else
+				goto error;
+			break;
+		case 11:
+			if(strncmp(in->s, "m0:rtp:port", 11) == 0)
+				sp->pvp.pvn.u.isname.name.n = 4;
 			else
 				goto error;
 			break;
 		case 12:
 			if(strncmp(in->s, "sess_version", 12) == 0)
 				sp->pvp.pvn.u.isname.name.n = 1;
+			else if(strncmp(in->s, "m0:rtcp:port", 12) == 0)
+				sp->pvp.pvn.u.isname.name.n = 5;
 			else
 				goto error;
 			break;
@@ -2131,6 +2420,467 @@ error:
 	LM_ERR("unknown PV sdp name %.*s\n", in->len, in->s);
 	return -1;
 }
+
+
+/*** body line iterator */
+#define SDP_ITERATOR_SIZE 4
+#define SDP_ITERATOR_NAME_SIZE 32
+
+typedef struct sdp_iterator
+{
+	str name;
+	char bname[SDP_ITERATOR_NAME_SIZE];
+	str body;
+	str it;
+	int eob;
+} sdp_iterator_t;
+
+static sdp_iterator_t _sdp_iterators[SDP_ITERATOR_SIZE];
+
+/**
+ *
+ */
+static void sdp_iterator_init(void)
+{
+	memset(_sdp_iterators, 0, SDP_ITERATOR_SIZE * sizeof(sdp_iterator_t));
+}
+
+/**
+ *
+ */
+static int ki_sdp_iterator_start(sip_msg_t *msg, str *iname)
+{
+	int i;
+	int k;
+	sdp_info_t *sdp = NULL;
+
+	if(parse_sdp(msg) < 0) {
+		LM_ERR("Unable to parse sdp\n");
+		return -1;
+	}
+	sdp = (sdp_info_t *)msg->body;
+	if(sdp == NULL) {
+		LM_DBG("No sdp body\n");
+		return -1;
+	}
+
+	k = -1;
+	for(i = 0; i < SDP_ITERATOR_SIZE; i++) {
+		if(_sdp_iterators[i].name.len > 0) {
+			if(_sdp_iterators[i].name.len == iname->len
+					&& strncmp(_sdp_iterators[i].name.s, iname->s, iname->len)
+							   == 0) {
+				k = i;
+				break;
+			}
+		} else {
+			if(k == -1)
+				k = i;
+		}
+	}
+	if(k == -1) {
+		LM_ERR("no iterator available - max number is %d\n", SDP_ITERATOR_SIZE);
+		return -1;
+	}
+	if(_sdp_iterators[k].name.len <= 0) {
+		if(iname->len >= SDP_ITERATOR_NAME_SIZE) {
+			LM_ERR("iterator name is too big [%.*s] (max %d)\n", iname->len,
+					iname->s, SDP_ITERATOR_NAME_SIZE);
+			return -1;
+		}
+		strncpy(_sdp_iterators[k].bname, iname->s, iname->len);
+		_sdp_iterators[k].bname[iname->len] = '\0';
+		_sdp_iterators[k].name.len = iname->len;
+		_sdp_iterators[k].name.s = _sdp_iterators[k].bname;
+	}
+	_sdp_iterators[k].it.s = NULL;
+	_sdp_iterators[k].it.len = 0;
+	_sdp_iterators[k].eob = 0;
+	_sdp_iterators[k].body.s = sdp->raw_sdp.s;
+	if(_sdp_iterators[k].body.s == NULL) {
+		LM_DBG("no message sdp\n");
+		return -1;
+	}
+	_sdp_iterators[k].body.len = sdp->raw_sdp.len;
+	return 1;
+}
+
+/**
+ *
+ */
+static int w_sdp_iterator_start(sip_msg_t *msg, char *piname, char *p2)
+{
+	str iname = STR_NULL;
+	if(fixup_get_svalue(msg, (gparam_t *)piname, &iname) < 0) {
+		LM_ERR("failed to get iterator name\n");
+		return -1;
+	}
+	return ki_sdp_iterator_start(msg, &iname);
+}
+
+/**
+ *
+ */
+static int ki_sdp_iterator_next(sip_msg_t *msg, str *iname)
+{
+	int i;
+	int k;
+	char *p;
+
+	k = -1;
+	for(i = 0; i < SDP_ITERATOR_SIZE; i++) {
+		if(_sdp_iterators[i].name.len > 0) {
+			if(_sdp_iterators[i].name.len == iname->len
+					&& strncmp(_sdp_iterators[i].name.s, iname->s, iname->len)
+							   == 0) {
+				k = i;
+				break;
+			}
+		}
+	}
+	if(k == -1) {
+		LM_ERR("iterator not available [%.*s]\n", iname->len, iname->s);
+		return -1;
+	}
+	if(_sdp_iterators[k].eob == 1) {
+		return -1;
+	}
+
+	if(_sdp_iterators[k].it.s == NULL) {
+		_sdp_iterators[k].it.s = _sdp_iterators[k].body.s;
+	}
+	p = _sdp_iterators[k].it.s + _sdp_iterators[k].it.len;
+	if(p >= _sdp_iterators[k].body.s + _sdp_iterators[k].body.len) {
+		_sdp_iterators[k].it.s = NULL;
+		_sdp_iterators[k].it.len = 0;
+		_sdp_iterators[k].eob = 1;
+		return -1;
+	}
+	_sdp_iterators[k].it.s = p;
+	while(p < _sdp_iterators[k].body.s + _sdp_iterators[k].body.len) {
+		if(*p == '\n') {
+			break;
+		}
+		p++;
+	}
+	_sdp_iterators[k].it.len = p - _sdp_iterators[k].it.s + 1;
+
+	return 1;
+}
+
+/**
+ *
+ */
+static int w_sdp_iterator_next(sip_msg_t *msg, char *piname, char *p2)
+{
+	str iname = STR_NULL;
+	if(fixup_get_svalue(msg, (gparam_t *)piname, &iname) < 0) {
+		LM_ERR("failed to get iterator name\n");
+		return -1;
+	}
+	return ki_sdp_iterator_next(msg, &iname);
+}
+
+/**
+ *
+ */
+static int ki_sdp_iterator_end(sip_msg_t *msg, str *iname)
+{
+	int i;
+	int k;
+
+	k = -1;
+	for(i = 0; i < SDP_ITERATOR_SIZE; i++) {
+		if(_sdp_iterators[i].name.len > 0) {
+			if(_sdp_iterators[i].name.len == iname->len
+					&& strncmp(_sdp_iterators[i].name.s, iname->s, iname->len)
+							   == 0) {
+				k = i;
+				break;
+			}
+		}
+	}
+	if(k == -1) {
+		LM_ERR("iterator not available [%.*s]\n", iname->len, iname->s);
+		return -1;
+	}
+	_sdp_iterators[k].it.s = NULL;
+	_sdp_iterators[k].it.len = 0;
+	_sdp_iterators[k].body.s = NULL;
+	_sdp_iterators[k].body.len = 0;
+	_sdp_iterators[k].eob = 0;
+	return 1;
+}
+
+/**
+ *
+ */
+static int w_sdp_iterator_end(sip_msg_t *msg, char *piname, char *p2)
+{
+	str iname = STR_NULL;
+	if(fixup_get_svalue(msg, (gparam_t *)piname, &iname) < 0) {
+		LM_ERR("failed to get iterator name\n");
+		return -1;
+	}
+	return ki_sdp_iterator_end(msg, &iname);
+}
+
+/**
+ *
+ */
+static int ki_sdp_iterator_index(sip_msg_t *msg, str *iname)
+{
+	int i;
+	int k;
+
+	k = -1;
+	for(i = 0; i < SDP_ITERATOR_SIZE; i++) {
+		if(_sdp_iterators[i].name.len > 0) {
+			if(_sdp_iterators[i].name.len == iname->len
+					&& strncmp(_sdp_iterators[i].name.s, iname->s, iname->len)
+							   == 0) {
+				k = i;
+				break;
+			}
+		}
+	}
+	if(k == -1) {
+		LM_ERR("iterator not available [%.*s]\n", iname->len, iname->s);
+		return -1;
+	}
+
+	return k;
+}
+
+/**
+ *
+ */
+static int ki_sdp_iterator_rm(sip_msg_t *msg, str *iname)
+{
+	int k;
+	sr_lump_t *anchor;
+
+	k = ki_sdp_iterator_index(msg, iname);
+	if(k < 0 || _sdp_iterators[k].it.s == NULL
+			|| _sdp_iterators[k].it.len <= 0) {
+		return -1;
+	}
+	anchor = del_lump(msg, _sdp_iterators[k].it.s - msg->buf,
+			_sdp_iterators[k].it.len, 0);
+	if(anchor == 0) {
+		LM_ERR("cannot remove line %.*s\n", _sdp_iterators[k].it.len,
+				_sdp_iterators[k].it.s);
+		return -1;
+	}
+	return 1;
+}
+
+/**
+ *
+ */
+static int w_sdp_iterator_rm(sip_msg_t *msg, char *piname, char *p2)
+{
+	str iname = STR_NULL;
+	if(fixup_get_svalue(msg, (gparam_t *)piname, &iname) < 0) {
+		LM_ERR("failed to get iterator name\n");
+		return -1;
+	}
+	return ki_sdp_iterator_rm(msg, &iname);
+}
+
+/**
+ *
+ */
+static int ki_sdp_iterator_append(sip_msg_t *msg, str *iname, str *text)
+{
+	int k;
+	sr_lump_t *anchor;
+	str sval = STR_NULL;
+
+	k = ki_sdp_iterator_index(msg, iname);
+	if(k < 0 || _sdp_iterators[k].it.s == NULL
+			|| _sdp_iterators[k].it.len <= 0) {
+		return -1;
+	}
+	anchor = anchor_lump(msg,
+			_sdp_iterators[k].it.s + _sdp_iterators[k].it.len - msg->buf, 0, 0);
+	if(anchor == 0) {
+		LM_ERR("cannot append text after %.*s\n", _sdp_iterators[k].it.len,
+				_sdp_iterators[k].it.s);
+		return -1;
+	}
+	sval.s = (char *)pkg_malloc(text->len + 1);
+	if(sval.s == NULL) {
+		PKG_MEM_ERROR_FMT("failed append text after %.*s\n",
+				_sdp_iterators[k].it.len, _sdp_iterators[k].it.s);
+		return -1;
+	}
+	memcpy(sval.s, text->s, text->len);
+	sval.len = text->len;
+	sval.s[sval.len] = '\0';
+
+	if(insert_new_lump_before(anchor, sval.s, sval.len, 0) == 0) {
+		LM_ERR("cannot insert lump\n");
+		pkg_free(sval.s);
+		return -1;
+	}
+	return 1;
+}
+
+/**
+ *
+ */
+static int w_sdp_iterator_append(sip_msg_t *msg, char *piname, char *ptext)
+{
+	str iname = STR_NULL;
+	str text = STR_NULL;
+	if(fixup_get_svalue(msg, (gparam_t *)piname, &iname) < 0) {
+		LM_ERR("failed to get iterator name\n");
+		return -1;
+	}
+	if(fixup_get_svalue(msg, (gparam_t *)ptext, &text) < 0) {
+		LM_ERR("failed to get text\n");
+		return -1;
+	}
+
+	return ki_sdp_iterator_append(msg, &iname, &text);
+}
+
+/**
+ *
+ */
+static int ki_sdp_iterator_insert(sip_msg_t *msg, str *iname, str *text)
+{
+	int k;
+	sr_lump_t *anchor;
+	str sval = STR_NULL;
+
+	k = ki_sdp_iterator_index(msg, iname);
+	if(k < 0 || _sdp_iterators[k].it.s == NULL
+			|| _sdp_iterators[k].it.len <= 0) {
+		return -1;
+	}
+	anchor = anchor_lump(msg, _sdp_iterators[k].it.s - msg->buf, 0, 0);
+	if(anchor == 0) {
+		LM_ERR("cannot insert text after %.*s\n", _sdp_iterators[k].it.len,
+				_sdp_iterators[k].it.s);
+		return -1;
+	}
+	sval.s = (char *)pkg_malloc(text->len + 1);
+	if(sval.s == NULL) {
+		PKG_MEM_ERROR_FMT("failed to insert text after %.*s\n",
+				_sdp_iterators[k].it.len, _sdp_iterators[k].it.s);
+		return -1;
+	}
+	memcpy(sval.s, text->s, text->len);
+	sval.len = text->len;
+	sval.s[sval.len] = '\0';
+
+	if(insert_new_lump_before(anchor, sval.s, sval.len, 0) == 0) {
+		LM_ERR("cannot insert lump\n");
+		pkg_free(sval.s);
+		return -1;
+	}
+	return 1;
+}
+
+/**
+ *
+ */
+static int w_sdp_iterator_insert(sip_msg_t *msg, char *piname, char *ptext)
+{
+	str iname = STR_NULL;
+	str text = STR_NULL;
+	if(fixup_get_svalue(msg, (gparam_t *)piname, &iname) < 0) {
+		LM_ERR("failed to get iterator name\n");
+		return -1;
+	}
+	if(fixup_get_svalue(msg, (gparam_t *)ptext, &text) < 0) {
+		LM_ERR("failed to get text\n");
+		return -1;
+	}
+
+	return ki_sdp_iterator_insert(msg, &iname, &text);
+}
+
+/**
+ *
+ */
+static sr_kemi_xval_t _sr_kemi_sdp_iterator_xval = {0};
+
+/**
+ *
+ */
+static sr_kemi_xval_t *ki_sdp_iterator_value(sip_msg_t *msg, str *iname)
+{
+	int k;
+
+	memset(&_sr_kemi_sdp_iterator_xval, 0, sizeof(sr_kemi_xval_t));
+	k = ki_sdp_iterator_index(msg, iname);
+	if(k < 0 || _sdp_iterators[k].it.s == NULL
+			|| _sdp_iterators[k].it.len <= 0) {
+		sr_kemi_xval_null(&_sr_kemi_sdp_iterator_xval, 0);
+		return &_sr_kemi_sdp_iterator_xval;
+	}
+	if(_sdp_iterators[k].it.s == NULL) {
+		sr_kemi_xval_null(&_sr_kemi_sdp_iterator_xval, 0);
+		return &_sr_kemi_sdp_iterator_xval;
+	}
+	_sr_kemi_sdp_iterator_xval.vtype = SR_KEMIP_STR;
+	_sr_kemi_sdp_iterator_xval.v.s = _sdp_iterators[k].it;
+	return &_sr_kemi_sdp_iterator_xval;
+}
+
+/**
+ *
+ */
+static int pv_parse_sdp_iterator_name(pv_spec_t *sp, str *in)
+{
+	if(in->len <= 0) {
+		return -1;
+	}
+
+	sp->pvp.pvn.u.isname.name.s.s = in->s;
+	sp->pvp.pvn.u.isname.name.s.len = in->len;
+	sp->pvp.pvn.u.isname.type = 0;
+	sp->pvp.pvn.type = PV_NAME_INTSTR;
+
+	return 0;
+}
+
+/**
+ *
+ */
+static int pv_get_sdp_iterator_value(
+		sip_msg_t *msg, pv_param_t *param, pv_value_t *res)
+{
+	int i;
+	int k;
+	str *iname;
+
+	iname = &param->pvn.u.isname.name.s;
+	k = -1;
+	for(i = 0; i < SDP_ITERATOR_SIZE; i++) {
+		if(_sdp_iterators[i].name.len > 0) {
+			if(_sdp_iterators[i].name.len == iname->len
+					&& strncmp(_sdp_iterators[i].name.s, iname->s, iname->len)
+							   == 0) {
+				k = i;
+				break;
+			}
+		}
+	}
+	if(k == -1) {
+		LM_ERR("iterator not available [%.*s]\n", iname->len, iname->s);
+		return pv_get_null(msg, param, res);
+	}
+
+	if(_sdp_iterators[i].it.s == NULL) {
+		return pv_get_null(msg, param, res);
+	}
+	return pv_get_strval(msg, param, res, &_sdp_iterators[i].it);
+}
+
 
 /**
  *
@@ -2230,6 +2980,41 @@ static sr_kemi_t sr_kemi_sdpops_exports[] = {
 	{ str_init("sdpops"), str_init("sdp_print"),
 		SR_KEMIP_INT, ki_sdp_print,
 		{ SR_KEMIP_INT, SR_KEMIP_NONE, SR_KEMIP_NONE,
+			SR_KEMIP_NONE, SR_KEMIP_NONE, SR_KEMIP_NONE }
+	},
+	{ str_init("sdpops"), str_init("sdp_iterator_start"),
+		SR_KEMIP_INT, ki_sdp_iterator_start,
+		{ SR_KEMIP_STR, SR_KEMIP_NONE, SR_KEMIP_NONE,
+			SR_KEMIP_NONE, SR_KEMIP_NONE, SR_KEMIP_NONE }
+	},
+	{ str_init("sdpops"), str_init("sdp_iterator_end"),
+		SR_KEMIP_INT, ki_sdp_iterator_end,
+		{ SR_KEMIP_STR, SR_KEMIP_NONE, SR_KEMIP_NONE,
+			SR_KEMIP_NONE, SR_KEMIP_NONE, SR_KEMIP_NONE }
+	},
+	{ str_init("sdpops"), str_init("sdp_iterator_next"),
+		SR_KEMIP_INT, ki_sdp_iterator_next,
+		{ SR_KEMIP_STR, SR_KEMIP_NONE, SR_KEMIP_NONE,
+			SR_KEMIP_NONE, SR_KEMIP_NONE, SR_KEMIP_NONE }
+	},
+	{ str_init("sdpops"), str_init("sdp_iterator_rm"),
+		SR_KEMIP_INT, ki_sdp_iterator_rm,
+		{ SR_KEMIP_STR, SR_KEMIP_NONE, SR_KEMIP_NONE,
+			SR_KEMIP_NONE, SR_KEMIP_NONE, SR_KEMIP_NONE }
+	},
+	{ str_init("sdpops"), str_init("sdp_iterator_append"),
+		SR_KEMIP_INT, ki_sdp_iterator_append,
+		{ SR_KEMIP_STR, SR_KEMIP_STR, SR_KEMIP_NONE,
+			SR_KEMIP_NONE, SR_KEMIP_NONE, SR_KEMIP_NONE }
+	},
+	{ str_init("sdpops"), str_init("sdp_iterator_insert"),
+		SR_KEMIP_INT, ki_sdp_iterator_insert,
+		{ SR_KEMIP_STR, SR_KEMIP_STR, SR_KEMIP_NONE,
+			SR_KEMIP_NONE, SR_KEMIP_NONE, SR_KEMIP_NONE }
+	},
+	{ str_init("sdpops"), str_init("sdp_iterator_value"),
+		SR_KEMIP_XVAL, ki_sdp_iterator_value,
+		{ SR_KEMIP_STR, SR_KEMIP_NONE, SR_KEMIP_NONE,
 			SR_KEMIP_NONE, SR_KEMIP_NONE, SR_KEMIP_NONE }
 	},
 

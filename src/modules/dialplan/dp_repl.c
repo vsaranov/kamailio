@@ -119,8 +119,9 @@ int dpl_get_avp_values(sip_msg_t *msg, const pv_elem_p elem,
 		const pv_elem_p avp_elem, struct str_list **out)
 {
 	struct usr_avp *avp = NULL;
-	unsigned short name_type;
-	int_str avp_name, avp_value;
+	avp_flags_t name_type;
+	avp_name_t avp_name;
+	avp_value_t avp_value;
 	struct search_state state;
 	int sum = 0;
 	str s = STR_NULL;
@@ -648,7 +649,8 @@ search_rule:
 							LM_DBG("match check skipped: [%.*s] %d\n",
 									re_list->expr.len, re_list->expr.s, rez);
 						rt = re_list->next;
-						pcre2_match_data_free(pcre_md);
+						if(pcre_md)
+							pcre2_match_data_free(pcre_md);
 						pcre2_code_free(re_list->re);
 						pkg_free(re_list);
 						re_list = rt;

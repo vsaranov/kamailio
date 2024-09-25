@@ -8,7 +8,6 @@
 %bcond_without cnxcc
 %bcond_with dnssec
 %bcond_without evapi
-%bcond_without geoip
 %bcond_without http_async_client
 %bcond_without ims
 %bcond_without jansson
@@ -29,6 +28,7 @@
 %bcond_without sctp
 %bcond_without websocket
 %bcond_without xmlrpc
+%bcond_without wolfssl
 %endif
 
 %if 0%{?rhel} == 7
@@ -44,7 +44,6 @@
 %bcond_without cnxcc
 %bcond_with dnssec
 %bcond_without evapi
-%bcond_without geoip
 %bcond_without http_async_client
 %bcond_without ims
 %bcond_without jansson
@@ -65,6 +64,7 @@
 %bcond_without sctp
 %bcond_without websocket
 %bcond_without xmlrpc
+%bcond_without wolfssl
 %endif
 
 %if 0%{?rhel} == 8
@@ -90,7 +90,6 @@
 %bcond_without cnxcc
 %bcond_with dnssec
 %bcond_without evapi
-%bcond_without geoip
 %bcond_without http_async_client
 %bcond_without ims
 %bcond_without jansson
@@ -111,6 +110,7 @@
 %bcond_without sctp
 %bcond_without websocket
 %bcond_without xmlrpc
+%bcond_without wolfssl
 %endif
 
 %if 0%{?rhel} == 9
@@ -136,7 +136,6 @@
 %bcond_without cnxcc
 %bcond_with dnssec
 %bcond_without evapi
-%bcond_without geoip
 %bcond_without http_async_client
 %bcond_without ims
 %bcond_without jansson
@@ -157,6 +156,7 @@
 %bcond_without sctp
 %bcond_without websocket
 %bcond_without xmlrpc
+%bcond_without wolfssl
 %endif
 
 %if 0%{?suse_version}
@@ -165,7 +165,6 @@
 %bcond_without cnxcc
 %bcond_with dnssec
 %bcond_with evapi
-%bcond_without geoip
 %bcond_without http_async_client
 %bcond_without ims
 %bcond_without jansson
@@ -186,6 +185,7 @@
 %bcond_without sctp
 %bcond_without websocket
 %bcond_without xmlrpc
+%bcond_without wolfssl
 %endif
 
 # build with openssl 1.1.1 on RHEL 7 based dists
@@ -461,16 +461,14 @@ suspended when sending the event, to be resumed at a later point, maybe triggere
 %endif
 
 
-%if %{with geoip}
 %package    geoip
 Summary:    MaxMind GeoIP support for Kamailio
 Group:      %{PKGGROUP}
-Requires:   GeoIP, libmaxminddb, kamailio = %ver
-BuildRequires:  GeoIP-devel, libmaxminddb-devel
+Requires:   libmaxminddb, kamailio = %ver
+BuildRequires:  libmaxminddb-devel
 
 %description    geoip
 MaxMind GeoIP support for Kamailio.
-%endif
 
 
 %package    gzcompress
@@ -807,9 +805,9 @@ Requires:   python2, kamailio = %ver
 BuildRequires:  python2, python2-devel
 %endif
 %if %{with python3}
-%if 0%{?rhel} == 8
-Requires:   python39, kamailio = %ver
-BuildRequires:  python39, python39-devel
+%if 0%{?rhel} == 8 || 0%{?rhel} == 9
+Requires:   python3.12, kamailio = %ver
+BuildRequires:  python3.12, python3.12-devel
 %else
 Requires:   python3, kamailio = %ver
 BuildRequires:  python3, python3-devel
@@ -1037,6 +1035,7 @@ BuildRequires:  openssl-devel
 TLS transport for Kamailio.
 
 
+%if %{with wolfssl}
 %package    tls_wolfssl
 Summary:    TLS transport for Kamailio based on wolfSSL
 Group:      %{PKGGROUP}
@@ -1044,6 +1043,7 @@ BuildRequires: pkgconfig(wolfssl)
 
 %description    tls_wolfssl
 TLS transport for Kamailio based on wolfSSL
+%endif
 
 
 %package    tcpops
@@ -1205,7 +1205,7 @@ make every-module skip_modules="app_mono db_cassandra db_oracle iptrtpproxy \
     FREERADIUS=1 \
 %endif
 %if 0%{?rhel} >= 8
-    PYTHON3=python3.9 \
+    PYTHON3=python3.12 \
 %endif
     WOLFSSL_INTERNAL=no \
     group_include="kstandard kautheph kberkeley kcarrierroute \
@@ -1219,10 +1219,7 @@ make every-module skip_modules="app_mono db_cassandra db_oracle iptrtpproxy \
 %if %{with evapi}
     kev \
 %endif
-%if %{with geoip}
-    kgeoip \
     kgeoip2 \
-%endif
     kgzcompress \
 %if %{with http_async_client}
     khttp_async \
@@ -1291,7 +1288,11 @@ make every-module skip_modules="app_mono db_cassandra db_oracle iptrtpproxy \
 %if "%{?_unitdir}" != ""
     ksystemd \
 %endif
-    ktls ktls_wolfssl kunixodbc kutils \
+    ktls \
+%if %{with wolfssl}
+    ktls_wolfssl \
+%endif
+    kunixodbc kutils \
 %if %{with websocket}
     kwebsocket \
 %endif
@@ -1314,7 +1315,7 @@ make install-modules-all skip_modules="app_mono db_cassandra db_oracle \
     FREERADIUS=1 \
 %endif
 %if 0%{?rhel} >= 8
-    PYTHON3=python3.9 \
+    PYTHON3=python3.12 \
 %endif
     WOLFSSL_INTERNAL=no \
     group_include="kstandard kautheph kberkeley kcarrierroute \
@@ -1328,10 +1329,7 @@ make install-modules-all skip_modules="app_mono db_cassandra db_oracle \
 %if %{with evapi}
     kev \
 %endif
-%if %{with geoip}
-    kgeoip \
     kgeoip2 \
-%endif
     kgzcompress \
 %if %{with http_async_client}
     khttp_async \
@@ -1400,7 +1398,11 @@ make install-modules-all skip_modules="app_mono db_cassandra db_oracle \
 %if "%{?_unitdir}" != ""
     ksystemd \
 %endif
-    ktls ktls_wolfssl kunixodbc kutils \
+    ktls \
+%if %{with wolfssl}
+    ktls_wolfssl \
+%endif
+    kunixodbc kutils \
 %if %{with websocket}
     kwebsocket \
 %endif
@@ -1535,9 +1537,11 @@ fi
 %doc %{_docdir}/kamailio/modules/README.drouting
 %doc %{_docdir}/kamailio/modules/README.enum
 %doc %{_docdir}/kamailio/modules/README.exec
+%doc %{_docdir}/kamailio/modules/README.file_out
 %doc %{_docdir}/kamailio/modules/README.group
 %doc %{_docdir}/kamailio/modules/README.htable
 %doc %{_docdir}/kamailio/modules/README.imc
+%doc %{_docdir}/kamailio/modules/README.influxdbc
 %doc %{_docdir}/kamailio/modules/README.ipops
 %doc %{_docdir}/kamailio/modules/README.kemix
 %doc %{_docdir}/kamailio/modules/README.kex
@@ -1568,6 +1572,7 @@ fi
 %doc %{_docdir}/kamailio/modules/README.print_lib
 %doc %{_docdir}/kamailio/modules/README.pv
 %doc %{_docdir}/kamailio/modules/README.pv_headers
+%doc %{_docdir}/kamailio/modules/README.pvtpl
 %doc %{_docdir}/kamailio/modules/README.pua_rpc
 %doc %{_docdir}/kamailio/modules/README.qos
 %doc %{_docdir}/kamailio/modules/README.ratelimit
@@ -1697,9 +1702,11 @@ fi
 %{_libdir}/kamailio/modules/drouting.so
 %{_libdir}/kamailio/modules/enum.so
 %{_libdir}/kamailio/modules/exec.so
+%{_libdir}/kamailio/modules/file_out.so
 %{_libdir}/kamailio/modules/group.so
 %{_libdir}/kamailio/modules/htable.so
 %{_libdir}/kamailio/modules/imc.so
+%{_libdir}/kamailio/modules/influxdbc.so
 %{_libdir}/kamailio/modules/ipops.so
 %{_libdir}/kamailio/modules/kemix.so
 %{_libdir}/kamailio/modules/kex.so
@@ -1731,6 +1738,7 @@ fi
 %{_libdir}/kamailio/modules/pua_rpc.so
 %{_libdir}/kamailio/modules/pv.so
 %{_libdir}/kamailio/modules/pv_headers.so
+%{_libdir}/kamailio/modules/pvtpl.so
 %{_libdir}/kamailio/modules/qos.so
 %{_libdir}/kamailio/modules/ratelimit.so
 %{_libdir}/kamailio/modules/registrar.so
@@ -1914,14 +1922,10 @@ fi
 %endif
 
 
-%if %{with geoip}
 %files      geoip
 %defattr(-,root,root)
-%doc %{_docdir}/kamailio/modules/README.geoip
 %doc %{_docdir}/kamailio/modules/README.geoip2
-%{_libdir}/kamailio/modules/geoip.so
 %{_libdir}/kamailio/modules/geoip2.so
-%endif
 
 
 %files      gzcompress
@@ -1959,6 +1963,7 @@ fi
 %doc %{_docdir}/kamailio/modules/README.ims_isc
 %doc %{_docdir}/kamailio/modules/README.ims_ocs
 %doc %{_docdir}/kamailio/modules/README.ims_qos
+%doc %{_docdir}/kamailio/modules/README.ims_qos_npn
 %doc %{_docdir}/kamailio/modules/README.ims_registrar_pcscf
 %doc %{_docdir}/kamailio/modules/README.ims_registrar_scscf
 %doc %{_docdir}/kamailio/modules/README.ims_usrloc_pcscf
@@ -1974,6 +1979,7 @@ fi
 %{_libdir}/kamailio/modules/ims_isc.so
 %{_libdir}/kamailio/modules/ims_ocs.so
 %{_libdir}/kamailio/modules/ims_qos.so
+%{_libdir}/kamailio/modules/ims_qos_npn.so
 %{_libdir}/kamailio/modules/ims_registrar_pcscf.so
 %{_libdir}/kamailio/modules/ims_registrar_scscf.so
 %{_libdir}/kamailio/modules/ims_usrloc_pcscf.so
@@ -2033,9 +2039,7 @@ fi
 %files      lua
 %defattr(-,root,root)
 %doc %{_docdir}/kamailio/modules/README.app_lua
-%doc %{_docdir}/kamailio/modules/README.app_lua_sr
 %{_libdir}/kamailio/modules/app_lua.so
-%{_libdir}/kamailio/modules/app_lua_sr.so
 %endif
 
 
@@ -2333,10 +2337,12 @@ fi
 %{_libdir}/kamailio/modules/tls.so
 
 
+%if %{with wolfssl}
 %files      tls_wolfssl
 %defattr(-,root,root)
 %doc %{_docdir}/kamailio/modules/README.tls_wolfssl
 %{_libdir}/kamailio/modules/tls_wolfssl.so
+%endif
 
 
 %files      tcpops

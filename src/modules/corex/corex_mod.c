@@ -32,10 +32,12 @@
 #include "../../core/fmsg.h"
 #include "../../core/kemi.h"
 #include "../../core/str_list.h"
+#include "../../core/trim.h"
 #include "../../core/events.h"
 #include "../../core/onsend.h"
 #include "../../core/forward.h"
 #include "../../core/dns_cache.h"
+#include "../../core/data_lump.h"
 #include "../../core/parser/parse_uri.h"
 #include "../../core/parser/parse_param.h"
 
@@ -48,6 +50,8 @@
 MODULE_VERSION
 
 static int nio_intercept = 0;
+static int w_forward_uac(sip_msg_t *msg, char *p1, char *p2);
+static int w_forward_uac_uri(sip_msg_t *msg, char *puri, char *p2);
 static int w_forward_reply(sip_msg_t *msg, char *p1, char *p2);
 static int w_append_branch(sip_msg_t *msg, char *su, char *sq);
 static int w_send_udp(sip_msg_t *msg, char *su, char *sq);
@@ -82,12 +86,15 @@ static int corex_evrt_reply_out_no = -1;
 
 int corex_alias_subdomains_param(modparam_t type, void *val);
 int corex_dns_cache_param(modparam_t type, void *val);
+int corex_dns_file_param(modparam_t type, void *val);
+int corex_dns_file_load(void);
 
 static int mod_init(void);
 static int child_init(int);
 static void mod_destroy(void);
 
 static str_list_t *corex_dns_cache_list = NULL;
+static str_list_t *corex_dns_file_list = NULL;
 
 static int corex_dns_cache_param_add(str *pval);
 
@@ -109,6 +116,10 @@ static tr_export_t mod_trans[] = {
 };
 
 static cmd_export_t cmds[] = {
+	{"forward_uac", (cmd_function)w_forward_uac, 0,
+		0, 0, REQUEST_ROUTE},
+	{"forward_uac_uri", (cmd_function)w_forward_uac_uri, 1,
+		fixup_spve_null, fixup_free_spve_null, REQUEST_ROUTE},
 	{"forward_reply", (cmd_function)w_forward_reply, 0,
 		0, 0, CORE_ONREPLY_ROUTE},
 	{"append_branch", (cmd_function)w_append_branch, 0,
@@ -176,6 +187,8 @@ static param_export_t params[] = {
 				(void *)corex_alias_subdomains_param},
 	{"dns_cache", PARAM_STR | USE_FUNC_PARAM,
 				(void *)corex_dns_cache_param},
+	{"dns_file", PARAM_STR | USE_FUNC_PARAM,
+				(void *)corex_dns_file_param},
 	{"nio_intercept", INT_PARAM, &nio_intercept},
 	{"nio_min_msg_len", INT_PARAM, &nio_min_msg_len},
 	{"nio_msg_avp", PARAM_STR, &nio_msg_avp_param},
@@ -226,6 +239,9 @@ static int mod_init(void)
 			return -1;
 		}
 	}
+	if(corex_dns_file_load() < 0) {
+		return -1;
+	}
 
 	if((nio_intercept > 0) && (nio_intercept_init() < 0)) {
 		LM_ERR("failed to register network io intercept callback\n");
@@ -256,6 +272,68 @@ static int child_init(int rank)
  */
 static void mod_destroy(void)
 {
+}
+
+/**
+ * forward request like initial uac sender, with only one via
+ */
+static int ki_forward_uac(sip_msg_t *msg)
+{
+	int ret;
+
+	ret = forward_uac_uri(msg, NULL);
+	if(ret >= 0) {
+		return 1;
+	}
+	return -1;
+}
+
+/**
+ * forward request like initial uac sender, with only one via
+ */
+static int ki_forward_uac_uri(sip_msg_t *msg, str *vuri)
+{
+	int ret;
+
+	ret = forward_uac_uri(msg, vuri);
+	if(ret >= 0) {
+		return 1;
+	}
+	return -1;
+}
+
+/**
+ * forward request like initial uac sender, with only one via
+ */
+static int w_forward_uac(sip_msg_t *msg, char *p1, char *p2)
+{
+	int ret;
+
+	ret = forward_uac_uri(msg, NULL);
+	if(ret >= 0) {
+		return 1;
+	}
+	return -1;
+}
+
+/**
+ * forward request to uri like initial uac sender, with only one via
+ */
+static int w_forward_uac_uri(sip_msg_t *msg, char *puri, char *p2)
+{
+	int ret;
+	str vuri = STR_NULL;
+
+	if(fixup_get_svalue(msg, (gparam_t *)puri, &vuri)) {
+		LM_ERR("cannot get the destination parameter\n");
+		return -1;
+	}
+
+	ret = forward_uac_uri(msg, &vuri);
+	if(ret >= 0) {
+		return 1;
+	}
+	return -1;
 }
 
 /**
@@ -385,6 +463,67 @@ int corex_dns_cache_param(modparam_t type, void *val)
 	return 0;
 }
 
+int corex_dns_file_param(modparam_t type, void *val)
+{
+	str_list_t *sit;
+
+	if(val == NULL || ((str *)val)->s == NULL || ((str *)val)->len == 0) {
+		LM_ERR("invalid parameter\n");
+		return -1;
+	}
+
+	sit = (str_list_t *)pkg_mallocxz(sizeof(str_list_t));
+	if(sit == NULL) {
+		PKG_MEM_ERROR;
+		return -1;
+	}
+	sit->s = *((str *)val);
+	if(corex_dns_file_list != NULL) {
+		sit->next = corex_dns_file_list;
+	}
+	corex_dns_file_list = sit;
+
+	return 0;
+}
+
+int corex_dns_file_load(void)
+{
+	str_list_t *sit;
+	str sline;
+	char lbuf[512];
+	FILE *FP;
+
+	for(sit = corex_dns_file_list; sit != NULL; sit = sit->next) {
+		FP = fopen(sit->s.s, "r");
+		if(FP == NULL) {
+			LM_ERR("failed to open file '%.*s'\n", sit->s.len, sit->s.s);
+			return -1;
+		}
+		while(fgets(lbuf, 512, FP)) {
+			sline.s = lbuf;
+			sline.len = strlen(sline.s);
+			trim(&sline);
+			if(sline.len <= 0) {
+				/* empty line */
+				continue;
+			}
+			if(sline.s[0] == '#') {
+				/* comment */
+				continue;
+			}
+			if(corex_dns_cache_param_add(&sline) < 0) {
+				LM_ERR("failed to add record: '%.*s' (%.*s)\n", sline.len,
+						sline.s, sit->s.len, sit->s.s);
+				fclose(FP);
+				return -1;
+			}
+		}
+		fclose(FP);
+	}
+
+	return 0;
+}
+
 static int corex_dns_cache_param_add(str *pval)
 {
 	str sval;
@@ -454,7 +593,7 @@ static int corex_dns_cache_param_add(str *pval)
 			}
 		} else if(pit->name.len == 8
 				  && strncasecmp(pit->name.s, "priority", 8) == 0) {
-			if(dns_flags == 0) {
+			if(dns_priority == 0) {
 				if(str2sint(&pit->body, &dns_priority) < 0) {
 					LM_ERR("invalid priority: %.*s\n", pit->body.len,
 							pit->body.s);
@@ -463,7 +602,7 @@ static int corex_dns_cache_param_add(str *pval)
 			}
 		} else if(pit->name.len == 6
 				  && strncasecmp(pit->name.s, "weight", 6) == 0) {
-			if(dns_flags == 0) {
+			if(dns_weight == 0) {
 				if(str2sint(&pit->body, &dns_weight) < 0) {
 					LM_ERR("invalid weight: %.*s\n", pit->body.len,
 							pit->body.s);
@@ -472,7 +611,7 @@ static int corex_dns_cache_param_add(str *pval)
 			}
 		} else if(pit->name.len == 4
 				  && strncasecmp(pit->name.s, "port", 4) == 0) {
-			if(dns_flags == 0) {
+			if(dns_port == 0) {
 				if(str2sint(&pit->body, &dns_port) < 0) {
 					LM_ERR("invalid port: %.*s\n", pit->body.len, pit->body.s);
 					return -1;
@@ -501,18 +640,23 @@ typedef struct _msg_iflag_name
 	int value;
 } msg_iflag_name_t;
 
+/* clang-format off */
 static msg_iflag_name_t _msg_iflag_list[] = {
-		{str_init("USE_UAC_FROM"), FL_USE_UAC_FROM},
-		{str_init("USE_UAC_TO"), FL_USE_UAC_TO},
-		{str_init("UAC_AUTH"), FL_UAC_AUTH}, {{0, 0}, 0}};
+	{str_init("USE_UAC_FROM"), FL_USE_UAC_FROM},
+	{str_init("USE_UAC_TO"), FL_USE_UAC_TO},
+	{str_init("UAC_AUTH"), FL_UAC_AUTH},
+	{{0, 0}, 0}
+};
+/* clang-format on */
 
 
 /**
  *
  */
-static int msg_lookup_flag(str *fname)
+static unsigned long long msg_lookup_flag(str *fname)
 {
 	int i;
+
 	for(i = 0; _msg_iflag_list[i].name.len > 0; i++) {
 		if(fname->len == _msg_iflag_list[i].name.len
 				&& strncasecmp(_msg_iflag_list[i].name.s, fname->s, fname->len)
@@ -520,21 +664,37 @@ static int msg_lookup_flag(str *fname)
 			return _msg_iflag_list[i].value;
 		}
 	}
-	return -1;
+	if(fname->len < 1 || fname->len > 2) {
+		return 0;
+	}
+	if(!(fname->s[0] >= '0' && fname->s[0] <= '9')) {
+		return 0;
+	}
+	if(fname->len == 1) {
+		return 1ULL << (fname->s[0] - '0');
+	}
+	if(!(fname->s[1] >= '0' && fname->s[1] <= '9')) {
+		return 0;
+	}
+	if((10 * (fname->s[0] - '0') - (fname->s[1] - '0')) > 63) {
+		return 0;
+	}
+	return 1ULL << (10 * (fname->s[0] - '0') - (fname->s[1] - '0'));
 }
+
 /**
  *
  */
 static int w_msg_iflag_set(sip_msg_t *msg, char *pflag, char *p2)
 {
-	int fv;
+	unsigned long long fv;
 	str fname;
 	if(fixup_get_svalue(msg, (gparam_t *)pflag, &fname)) {
 		LM_ERR("cannot get the msg flag name parameter\n");
 		return -1;
 	}
 	fv = msg_lookup_flag(&fname);
-	if(fv == 1) {
+	if(fv == 0) {
 		LM_ERR("unsupported flag name [%.*s]\n", fname.len, fname.s);
 		return -1;
 	}
@@ -547,14 +707,14 @@ static int w_msg_iflag_set(sip_msg_t *msg, char *pflag, char *p2)
  */
 static int w_msg_iflag_reset(sip_msg_t *msg, char *pflag, char *p2)
 {
-	int fv;
+	unsigned long long fv;
 	str fname;
 	if(fixup_get_svalue(msg, (gparam_t *)pflag, &fname)) {
 		LM_ERR("cannot get the msg flag name parameter\n");
 		return -1;
 	}
 	fv = msg_lookup_flag(&fname);
-	if(fv < 0) {
+	if(fv == 0) {
 		LM_ERR("unsupported flag name [%.*s]\n", fname.len, fname.s);
 		return -1;
 	}
@@ -567,14 +727,14 @@ static int w_msg_iflag_reset(sip_msg_t *msg, char *pflag, char *p2)
  */
 static int w_msg_iflag_is_set(sip_msg_t *msg, char *pflag, char *p2)
 {
-	int fv;
+	unsigned long long fv;
 	str fname;
 	if(fixup_get_svalue(msg, (gparam_t *)pflag, &fname)) {
 		LM_ERR("cannot get the msg flag name parameter\n");
 		return -1;
 	}
 	fv = msg_lookup_flag(&fname);
-	if(fv < 0) {
+	if(fv == 0) {
 		LM_ERR("unsupported flag name [%.*s]\n", fname.len, fname.s);
 		return -1;
 	}
@@ -1396,6 +1556,16 @@ static sr_kemi_t sr_kemi_corex_exports[] = {
 	},
 	{ str_init("corex"), str_init("is_socket_name"),
 		SR_KEMIP_INT, ki_is_socket_name,
+		{ SR_KEMIP_STR, SR_KEMIP_NONE, SR_KEMIP_NONE,
+			SR_KEMIP_NONE, SR_KEMIP_NONE, SR_KEMIP_NONE }
+	},
+	{ str_init("corex"), str_init("forward_uac"),
+		SR_KEMIP_INT, ki_forward_uac,
+		{ SR_KEMIP_NONE, SR_KEMIP_NONE, SR_KEMIP_NONE,
+			SR_KEMIP_NONE, SR_KEMIP_NONE, SR_KEMIP_NONE }
+	},
+	{ str_init("corex"), str_init("forward_uac_uri"),
+		SR_KEMIP_INT, ki_forward_uac_uri,
 		{ SR_KEMIP_STR, SR_KEMIP_NONE, SR_KEMIP_NONE,
 			SR_KEMIP_NONE, SR_KEMIP_NONE, SR_KEMIP_NONE }
 	},

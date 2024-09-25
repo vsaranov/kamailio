@@ -80,6 +80,11 @@ int check_self(str *host, unsigned short port, unsigned short proto);
 int check_self_port(unsigned short port, unsigned short proto);
 int forward_request(struct sip_msg *msg, str *dst, unsigned short port,
 		struct dest_info *send_info);
+int forward_request_mode(struct sip_msg *msg, str *dst, unsigned short port,
+		struct dest_info *send_info, unsigned int mbmode);
+int forward_request_uac(struct sip_msg *msg, str *dst, unsigned short port,
+		struct dest_info *send_info);
+int forward_uac_uri(sip_msg_t *msg, str *vuri);
 int update_sock_struct_from_via(
 		union sockaddr_union *to, struct sip_msg *msg, struct via_body *via);
 
@@ -132,6 +137,7 @@ static inline int msg_send_buffer(
 	union sockaddr_union local_addr;
 	struct tcp_connection *con = NULL;
 	struct ws_event_info wsev;
+	int dproto;
 	int ret;
 #endif
 
@@ -187,8 +193,21 @@ static inline int msg_send_buffer(
 		if(likely(port)) {
 			su2ip_addr(&ip, &dst->to);
 			if(tcp_connection_match == TCPCONN_MATCH_STRICT) {
+				/* lookup first for WSS, because transport=ws is in URI,
+				 * but WS is less likely */
+				if(dst->proto == PROTO_WSS || dst->proto == PROTO_WS) {
+					dproto = PROTO_WSS;
+				} else {
+					dproto = dst->proto;
+				}
 				con = tcpconn_lookup(dst->id, &ip, port, from,
-						(dst->send_sock) ? dst->send_sock->port_no : 0, 0);
+						(dst->send_sock) ? dst->send_sock->port_no : 0, 0,
+						dproto);
+				if(con == NULL && dst->proto == PROTO_WS) {
+					con = tcpconn_lookup(dst->id, &ip, port, from,
+							(dst->send_sock) ? dst->send_sock->port_no : 0, 0,
+							PROTO_WS);
+				}
 			} else {
 				con = tcpconn_get(dst->id, &ip, port, from, 0);
 			}

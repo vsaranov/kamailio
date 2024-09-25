@@ -47,10 +47,11 @@ typedef struct uac_req
 	str *ssock;
 	str *ssockname;
 	dlg_t *dialog;
-	int cb_flags;
+	unsigned int cb_flags;
 	transaction_cb *cb;
 	void *cbp;
 	str *callid;
+	unsigned int cseqno;
 } uac_req_t;
 
 /* macro for setting the values of uac_req_t struct */

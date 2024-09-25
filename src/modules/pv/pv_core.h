@@ -65,6 +65,11 @@ int pv_get_errinfo_attr(
 
 int pv_get_contact(struct sip_msg *msg, pv_param_t *param, pv_value_t *res);
 
+int pv_get_contact_uri(struct sip_msg *msg, pv_param_t *param, pv_value_t *res);
+
+int pv_get_contact_star(
+		struct sip_msg *msg, pv_param_t *param, pv_value_t *res);
+
 int pv_get_xto_attr(struct sip_msg *msg, pv_param_t *param, pv_value_t *res,
 		struct to_body *xto, int type);
 
@@ -181,6 +186,8 @@ int pv_get_content_length(
 int pv_get_msg_body(struct sip_msg *msg, pv_param_t *param, pv_value_t *res);
 
 int pv_get_body_size(struct sip_msg *msg, pv_param_t *param, pv_value_t *res);
+
+int pv_get_escstr(struct sip_msg *msg, pv_param_t *param, pv_value_t *res);
 
 int pv_get_authattr(struct sip_msg *msg, pv_param_t *param, pv_value_t *res);
 

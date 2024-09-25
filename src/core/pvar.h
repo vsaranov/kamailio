@@ -121,8 +121,8 @@ typedef struct _pv_name
 	{
 		struct
 		{
-			int type;	  /*!< type of int_str name - compatibility with AVPs */
-			int_str name; /*!< the value of the name */
+			avp_flags_t type; /*!< type of avp name - compatibility with AVPs */
+			avp_name_t name;  /*!< the value of the name */
 		} isname;
 		void *dname; /*!< PV value - dynamic name */
 	} u;
@@ -208,8 +208,8 @@ void pv_spec_destroy(pv_spec_t *spec);
 void pv_spec_free(pv_spec_t *spec);
 int pv_spec_dbg(pv_spec_p sp);
 int pv_get_spec_index(struct sip_msg *msg, pv_param_p ip, int *idx, int *flags);
-int pv_get_avp_name(struct sip_msg *msg, pv_param_p ip, int_str *avp_name,
-		unsigned short *name_type);
+int pv_get_avp_name(struct sip_msg *msg, pv_param_p ip, avp_name_t *avp_name,
+		avp_flags_t *name_type);
 int pv_parse_avp_name(pv_spec_p sp, str *in);
 int pv_get_spec_name(struct sip_msg *msg, pv_param_p ip, pv_value_t *name);
 int pv_parse_format(str *in, pv_elem_p *el);

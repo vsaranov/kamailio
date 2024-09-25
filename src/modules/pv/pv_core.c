@@ -381,6 +381,52 @@ int pv_get_contact(struct sip_msg *msg, pv_param_t *param, pv_value_t *res)
 	return pv_get_strval(msg, param, res, &msg->contact->body);
 }
 
+int pv_get_contact_uri(struct sip_msg *msg, pv_param_t *param, pv_value_t *res)
+{
+	contact_body_t *cb = NULL;
+
+	if(msg == NULL)
+		return -1;
+
+	if(msg->contact == NULL && parse_headers(msg, HDR_CONTACT_F, 0) == -1) {
+		LM_DBG("no contact header\n");
+		return pv_get_null(msg, param, res);
+	}
+	if(parse_contact_headers(msg) < 0) {
+		return pv_get_null(msg, param, res);
+	}
+
+	cb = (contact_body_t *)msg->contact->parsed;
+	if(cb->star == 1 || cb->contacts == NULL) {
+		return pv_get_null(msg, param, res);
+	}
+
+	return pv_get_strval(msg, param, res, &cb->contacts->uri);
+}
+
+int pv_get_contact_star(struct sip_msg *msg, pv_param_t *param, pv_value_t *res)
+{
+	contact_body_t *cb = NULL;
+
+	if(msg == NULL)
+		return -1;
+
+	if(msg->contact == NULL && parse_headers(msg, HDR_CONTACT_F, 0) == -1) {
+		LM_DBG("no contact header\n");
+		return pv_get_null(msg, param, res);
+	}
+	if(parse_contact_headers(msg) < 0) {
+		return pv_get_null(msg, param, res);
+	}
+
+	cb = (contact_body_t *)msg->contact->parsed;
+
+	if(cb->star == 1) {
+		return pv_get_uintval(msg, param, res, 1);
+	}
+	return pv_get_uintval(msg, param, res, 0);
+}
+
 int pv_get_xto_attr(struct sip_msg *msg, pv_param_t *param, pv_value_t *res,
 		struct to_body *xto, int type)
 {
@@ -522,8 +568,6 @@ static str _ksr_pv_msg_buf_updated = STR_NULL;
 int pv_get_msg_buf_updated(
 		struct sip_msg *msg, pv_param_t *param, pv_value_t *res)
 {
-	dest_info_t send_info;
-
 	if(msg == NULL)
 		return -1;
 
@@ -533,17 +577,7 @@ int pv_get_msg_buf_updated(
 		_ksr_pv_msg_buf_updated.len = 0;
 	}
 
-	init_dest_info(&send_info);
-	send_info.proto = PROTO_UDP;
-	if(msg->first_line.type == SIP_REPLY) {
-		_ksr_pv_msg_buf_updated.s = generate_res_buf_from_sip_res(msg,
-				(unsigned int *)&_ksr_pv_msg_buf_updated.len,
-				BUILD_NO_VIA1_UPDATE);
-	} else if(msg->first_line.type == SIP_REQUEST) {
-		_ksr_pv_msg_buf_updated.s = build_req_buf_from_sip_req(msg,
-				(unsigned int *)&_ksr_pv_msg_buf_updated.len, &send_info,
-				BUILD_NO_PATH | BUILD_NO_LOCAL_VIA | BUILD_NO_VIA1_UPDATE);
-	} else {
+	if(sip_msg_eval_changes(msg, &_ksr_pv_msg_buf_updated) < 0) {
 		return pv_get_null(msg, param, res);
 	}
 
@@ -1454,6 +1488,60 @@ int pv_get_body_size(struct sip_msg *msg, pv_param_t *param, pv_value_t *res)
 }
 
 
+#define PV_ESCSTR_SIZE 32
+int pv_get_escstr(struct sip_msg *msg, pv_param_t *param, pv_value_t *res)
+{
+	static char _pv_escstr[PV_ESCSTR_SIZE];
+	int i;
+	str s;
+
+	if(param->pvn.u.isname.name.n < 0) {
+		return pv_get_null(msg, param, res);
+	}
+
+	i = (2 * param->pvn.u.isname.name.n) % PV_ESCSTR_SIZE;
+	switch(param->pvn.u.isname.name.n) {
+		case 2:
+			_pv_escstr[i] = '\r';
+			break;
+		case 3:
+			_pv_escstr[i] = '\t';
+			break;
+		case 4:
+			_pv_escstr[i] = ' ';
+			break;
+		case 5:
+			_pv_escstr[i] = ',';
+			break;
+		case 6:
+			_pv_escstr[i] = '"';
+			break;
+		case 7:
+			_pv_escstr[i] = '\'';
+			break;
+		case 8:
+			_pv_escstr[i] = ':';
+			break;
+		case 9:
+			_pv_escstr[i] = ';';
+			break;
+		case 10:
+			_pv_escstr[i] = '\\';
+			break;
+		case 11:
+			_pv_escstr[i] = '`';
+			break;
+		default:
+			_pv_escstr[i] = '\n';
+			break;
+	}
+	_pv_escstr[i + 1] = '\0';
+	s.s = &_pv_escstr[i];
+	s.len = 1;
+	return pv_get_strval(msg, param, res, &s);
+}
+
+
 int pv_get_authattr(struct sip_msg *msg, pv_param_t *param, pv_value_t *res)
 {
 	struct hdr_field *hdr;
@@ -1728,11 +1816,11 @@ int pv_get_branches(struct sip_msg *msg, pv_param_t *param, pv_value_t *res)
 
 int pv_get_avp(struct sip_msg *msg, pv_param_t *param, pv_value_t *res)
 {
-	unsigned short name_type;
-	int_str avp_name;
-	int_str avp_value;
+	avp_flags_t name_type;
+	avp_name_t avp_name;
+	avp_value_t avp_value;
 	struct usr_avp *avp;
-	int_str avp_value0;
+	avp_value_t avp_value0;
 	struct usr_avp *avp0;
 	int idx;
 	int idxf;
@@ -2730,8 +2818,8 @@ int pv_get_server_id(struct sip_msg *msg, pv_param_t *param, pv_value_t *res)
 
 int pv_get_cnt(struct sip_msg *msg, pv_param_t *param, pv_value_t *res)
 {
-	int_str avp_name;
-	unsigned short avp_type = 0;
+	avp_name_t avp_name;
+	avp_flags_t avp_type = 0;
 	avp_search_state_t state;
 	pv_spec_t *pv = NULL;
 	unsigned int n = 0;
@@ -2939,6 +3027,13 @@ int pv_get_tcpconn_id(struct sip_msg *msg, pv_param_t *param, pv_value_t *res)
 	if(msg == NULL)
 		return -1;
 
+	/* use first the connection set for event_route[tcp:...] */
+	con = ksr_tcpcon_evcb_get();
+	if(con != NULL) {
+		return pv_get_sintval(msg, param, res, con->id);
+	}
+
+	/* find connection from sip message structure */
 	if((con = tcpconn_get(msg->rcv.proto_reserved1, 0, 0, 0, 0)) == NULL)
 		return pv_get_null(msg, param, res);
 
@@ -2954,10 +3049,10 @@ int pv_get_tcpconn_id(struct sip_msg *msg, pv_param_t *param, pv_value_t *res)
 /********* start PV set functions *********/
 int pv_set_avp(struct sip_msg *msg, pv_param_t *param, int op, pv_value_t *val)
 {
-	int_str avp_name;
-	int_str avp_val;
+	avp_name_t avp_name;
+	avp_value_t avp_val;
 	int flags;
-	unsigned short name_type;
+	avp_flags_t name_type;
 	int idxf;
 	int idx;
 
@@ -3894,6 +3989,10 @@ int pv_parse_K_name(pv_spec_p sp, str *in)
 				sp->pvp.pvn.u.isname.name.n = 4;
 			else if(strncmp(in->s, "WSS", 3) == 0)
 				sp->pvp.pvn.u.isname.name.n = 7;
+			else if(strncmp(in->s, "IP4", 3) == 0)
+				sp->pvp.pvn.u.isname.name.n = 0;
+			else if(strncmp(in->s, "IP6", 3) == 0)
+				sp->pvp.pvn.u.isname.name.n = 1;
 			else
 				goto error;
 			break;

@@ -7,7 +7,7 @@
  *
  * The initial version of this code was written by Dragos Vingarzan
  * (dragos(dot)vingarzan(at)fokus(dot)fraunhofer(dot)de and the
- * Fruanhofer Institute. It was and still is maintained in a separate
+ * Fraunhofer FOKUS Institute. It was and still is maintained in a separate
  * branch of the original SER. We are therefore migrating it to
  * Kamailio/SR and look forward to maintaining it from here on out.
  * 2011/2012 Smile Communications, Pty. Ltd.
@@ -17,7 +17,7 @@
  * effort to add full IMS support to Kamailio/SR using a new and
  * improved architecture
  *
- * NB: Alot of this code was originally part of OpenIMSCore,
+ * NB: A lot of this code was originally part of OpenIMSCore,
  * FhG Fokus.
  * Copyright (C) 2004-2006 FhG Fokus
  * Thanks for great work! This is an effort to
@@ -496,7 +496,7 @@ int get_pcontact_from_cache(udomain_t *_d, pcontact_info_t *contact_info,
 					contact_info->aor.len, contact_info->aor.s);
 			return 1;
 		}
-		LM_DBG("checking for rinstance");
+		LM_DBG("checking for rinstance\n");
 		/*check for alias - NAT */
 		params = needle_uri.sip_params.s;
 		params_len = needle_uri.sip_params.len;
@@ -548,7 +548,7 @@ int get_pcontact_from_cache(udomain_t *_d, pcontact_info_t *contact_info,
 			int check2_passed = 0;
 			ip_addr_t c_ip_addr;
 			ip_addr_t ci_ip_addr;
-			LM_DBG("mached a record by aorhash: %u\n", aorhash);
+			LM_DBG("matched a record by aorhash: %u\n", aorhash);
 
 			// convert 'contact->contact host' ip string to ip_addr_t
 			if(str2ipxbuf(&c->contact_host, &c_ip_addr) < 0) {
@@ -616,32 +616,40 @@ int get_pcontact_from_cache(udomain_t *_d, pcontact_info_t *contact_info,
 						continue;
 					}
 				}
-				if((contact_info->aor.len > 0) && (needle_uri.user.len != 0)) {
-					if((needle_uri.user.len != c->contact_user.len)
-							|| (memcmp(needle_uri.user.s, c->contact_user.s,
-										needle_uri.user.len)
-									!= 0)) {
-						LM_ERR("user name does not match - no match here...\n");
-						LM_DBG("found pcontact username [%d]: [%.*s]\n", i,
-								c->contact_user.len, c->contact_user.s);
-						LM_DBG("incoming contact username: [%.*s]\n",
-								needle_uri.user.len, needle_uri.user.s);
-						c = c->next;
-						continue;
+
+				// perform full contact match
+				if(match_contact_host_port == 0) {
+					if((contact_info->aor.len > 0)
+							&& (needle_uri.user.len != 0)) {
+						if((needle_uri.user.len != c->contact_user.len)
+								|| (memcmp(needle_uri.user.s, c->contact_user.s,
+											needle_uri.user.len)
+										!= 0)) {
+							LM_ERR("user name does not match - no match "
+								   "here...\n");
+							LM_DBG("found pcontact username [%d]: [%.*s]\n", i,
+									c->contact_user.len, c->contact_user.s);
+							LM_DBG("incoming contact username: [%.*s]\n",
+									needle_uri.user.len, needle_uri.user.s);
+							c = c->next;
+							continue;
+						}
+						if((contact_info->aor.len >= 4)
+								&& (memcmp(contact_info->aor.s, c->aor.s, 4)
+										!= 0)) { // do not mix up sip- and tel-URIs.
+							LM_ERR("scheme does not match - no match "
+								   "here...\n");
+							LM_DBG("found pcontact scheme [%d]: [%.*s]\n", i, 4,
+									c->aor.s);
+							LM_DBG("incoming contact scheme: [%.*s]\n", 4,
+									contact_info->aor.s);
+							c = c->next;
+							continue;
+						}
+					} else {
+						LM_DBG("No user name present - abort user name "
+							   "check\n");
 					}
-					if((contact_info->aor.len >= 4)
-							&& (memcmp(contact_info->aor.s, c->aor.s, 4)
-									!= 0)) { // do not mix up sip- and tel-URIs.
-						LM_ERR("scheme does not match - no match here...\n");
-						LM_DBG("found pcontact scheme [%d]: [%.*s]\n", i, 4,
-								c->aor.s);
-						LM_DBG("incoming contact scheme: [%.*s]\n", 4,
-								contact_info->aor.s);
-						c = c->next;
-						continue;
-					}
-				} else {
-					LM_DBG("No user name present - abort user name check\n");
 				}
 
 

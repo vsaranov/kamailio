@@ -64,6 +64,9 @@
 #include "../../core/lvalue.h"
 #include "../../core/pt.h" /* Process table */
 #include "../../core/kemi.h"
+#define KSR_RTHREAD_NEED_4L
+#define KSR_RTHREAD_SKIP_P
+#include "../../core/rthreads.h"
 
 #include "functions.h"
 #include "curlcon.h"
@@ -76,8 +79,10 @@ MODULE_VERSION
 #define CURL_USER_AGENT_LEN (sizeof(CURL_USER_AGENT) - 1)
 
 /* Module parameter variables */
-unsigned int default_connection_timeout = 0; /*!< 0 = not user configured - the default (4 seconds) will be used */
-unsigned int timeout_mode = 1; /*!< 0 = timeout disabled, 1 (default) = timeout in seconds, 2 = timeout in ms */
+unsigned int default_connection_timeout =
+		0; /*!< 0 = not user configured - the default (4 seconds) will be used */
+unsigned int timeout_mode =
+		1; /*!< 0 = timeout disabled, 1 (default) = timeout in seconds, 2 = timeout in ms */
 char *default_tls_cacert =
 		NULL; /*!< File name: Default CA cert to use for curl TLS connection */
 str default_tls_clientcert =
@@ -112,6 +117,8 @@ unsigned int default_query_result = 1;
 /*!< Default download size for result of query function. 0=disabled (no limit) */
 unsigned int default_query_maxdatasize = 0;
 
+int http_client_response_headers_param = 0;
+
 str http_client_config_file = STR_NULL;
 
 static curl_version_info_data *curl_info;
@@ -122,13 +129,6 @@ static int child_init(int);
 static void destroy(void);
 
 /* Fixup functions to be defined later */
-static int fixup_http_query_get(void **param, int param_no);
-static int fixup_free_http_query_get(void **param, int param_no);
-static int fixup_http_query_post(void **param, int param_no);
-static int fixup_free_http_query_post(void **param, int param_no);
-static int fixup_http_query_post_hdr(void **param, int param_no);
-static int fixup_free_http_query_post_hdr(void **param, int param_no);
-
 static int fixup_curl_connect(void **param, int param_no);
 static int fixup_free_curl_connect(void **param, int param_no);
 static int fixup_curl_connect_post(void **param, int param_no);
@@ -154,27 +154,43 @@ static int w_http_query_get_hdr(struct sip_msg *_m, char *_url, char *_body,
 		char *_hdrs, char *_result);
 static int w_curl_connect(
 		struct sip_msg *_m, char *_con, char *_url, char *_result);
+static int w_http_query_request(struct sip_msg *_m, char *_met, char *_url,
+		char *_body, char *_hdrs, char *_result);
+static int w_http_query_request_v2pk(struct sip_msg *_m, char *_met, char *_url,
+		char *_body, char *_hdrs, char *_result);
+static int w_http_client_response_headers_set(
+		sip_msg_t *_m, char *_pval, char *_p2);
+static int w_http_client_response_headers_clear(
+		sip_msg_t *_m, char *_p1, char *_p2);
 
 /* forward function */
 static int curl_con_param(modparam_t type, void *val);
 static int pv_parse_curlerror(pv_spec_p sp, str *in);
 static int pv_get_curlerror(
 		struct sip_msg *msg, pv_param_t *param, pv_value_t *res);
+static int pv_parse_httprhdr(pv_spec_p sp, str *in);
+static int pv_get_httprhdr(sip_msg_t *msg, pv_param_t *param, pv_value_t *res);
 
 /* clang-format off */
 /* Exported functions */
 static cmd_export_t cmds[] = {
-	{"http_client_query", (cmd_function)w_http_query, 2, fixup_http_query_get,
-	 	fixup_free_http_query_get,
+	{"http_client_query", (cmd_function)w_http_query, 2, fixup_spve1_pvar,
+	 	fixup_free_spve_pvar,
 		REQUEST_ROUTE|ONREPLY_ROUTE|FAILURE_ROUTE|BRANCH_ROUTE},
-	{"http_client_query", (cmd_function)w_http_query_post, 3, fixup_http_query_post,
-		fixup_free_http_query_post,
+	{"http_client_query", (cmd_function)w_http_query_post, 3, fixup_spve2_pvar,
+		fixup_free_spve2_pvar,
 		REQUEST_ROUTE|ONREPLY_ROUTE|FAILURE_ROUTE|BRANCH_ROUTE},
-	{"http_client_query", (cmd_function)w_http_query_post_hdr, 4, fixup_http_query_post_hdr,
-		fixup_free_http_query_post_hdr,
+	{"http_client_query", (cmd_function)w_http_query_post_hdr, 4, fixup_spve3_pvar,
+		fixup_free_spve3_pvar,
 		REQUEST_ROUTE|ONREPLY_ROUTE|FAILURE_ROUTE|BRANCH_ROUTE},
-	{"http_client_get", (cmd_function)w_http_query_get_hdr, 4, fixup_http_query_post_hdr,
-		fixup_free_http_query_post_hdr,
+	{"http_client_get", (cmd_function)w_http_query_get_hdr, 4, fixup_spve3_pvar,
+		fixup_free_spve3_pvar,
+		REQUEST_ROUTE|ONREPLY_ROUTE|FAILURE_ROUTE|BRANCH_ROUTE},
+	{"http_client_request", (cmd_function)w_http_query_request, 5, fixup_spve4_pvar,
+		fixup_free_spve4_pvar,
+		REQUEST_ROUTE|ONREPLY_ROUTE|FAILURE_ROUTE|BRANCH_ROUTE},
+	{"http_client_request_v2pk", (cmd_function)w_http_query_request_v2pk, 5, fixup_spve4_pvar,
+		fixup_free_spve4_pvar,
 		REQUEST_ROUTE|ONREPLY_ROUTE|FAILURE_ROUTE|BRANCH_ROUTE},
 	{"http_connect", (cmd_function)w_curl_connect, 3, fixup_curl_connect,
 		fixup_free_curl_connect,
@@ -188,6 +204,12 @@ static cmd_export_t cmds[] = {
 	{"http_get_redirect", (cmd_function)w_curl_get_redirect, 2, fixup_curl_get_redirect,
 		fixup_free_curl_get_redirect,
 		REQUEST_ROUTE|ONREPLY_ROUTE|FAILURE_ROUTE|BRANCH_ROUTE},
+	{"http_client_response_headers_set",
+		(cmd_function)w_http_client_response_headers_set, 1, fixup_igp_null,
+	 	fixup_free_igp_null, ANY_ROUTE},
+	{"http_client_response_headers_clear",
+		(cmd_function)w_http_client_response_headers_clear, 1, 0,
+	 	0, ANY_ROUTE},
 	{"bind_http_client",  (cmd_function)bind_httpc_api,  0, 0, 0, 0},
 	{0,0,0,0,0,0}
 };
@@ -216,6 +238,7 @@ static param_export_t params[] = {
 	{"query_result", PARAM_INT, &default_query_result },
 	{"query_maxdatasize", PARAM_INT, &default_query_maxdatasize },
 	{"netinterface", PARAM_STRING,  &default_netinterface },
+	{"response_headers", PARAM_INT, &http_client_response_headers_param },
 	{0, 0, 0}
 };
 
@@ -226,6 +249,8 @@ static param_export_t params[] = {
 static pv_export_t mod_pvs[] = {
 	{{"curlerror", (sizeof("curlerror")-1)}, /* Curl error codes */
 		PVT_OTHER, pv_get_curlerror, 0, pv_parse_curlerror, 0, 0, 0},
+	{{"httprhdr", (sizeof("httprhdr")-1)}, /* HTTP response header */
+		PVT_OTHER, pv_get_httprhdr, 0, pv_parse_httprhdr, 0, 0, 0},
 
 	{{0, 0}, 0, 0, 0, 0, 0, 0, 0}
 };
@@ -280,7 +305,7 @@ static int mod_init(void)
 	LM_DBG("init curl module\n");
 
 	/* Initialize curl */
-	if(curl_global_init(CURL_GLOBAL_ALL)) {
+	if(run_thread4L((_thread_proto4L)&curl_global_init, CURL_GLOBAL_ALL)) {
 		LM_ERR("curl_global_init failed\n");
 		return -1;
 	}
@@ -317,16 +342,16 @@ static int mod_init(void)
 	 * - 1 (default) : timeout value is in seconds.
 	 * - 2 : timeout value is in milliseconds.
 	 */
-	if (!(timeout_mode == 1 || timeout_mode == 2)) {
-		if (default_connection_timeout > 0) {
+	if(!(timeout_mode == 1 || timeout_mode == 2)) {
+		if(default_connection_timeout > 0) {
 			LM_WARN("configured connection_timeout is ignored "
-				"because timeouts are disabled (timeout_mode)\n");
+					"because timeouts are disabled (timeout_mode)\n");
 		}
-	} else if (default_connection_timeout == 0) {
+	} else if(default_connection_timeout == 0) {
 		LM_INFO("curl connection timeout set to zero. Using default 4 secs\n");
-		if (timeout_mode == 1) { /* timeout is in seconds (default) */
+		if(timeout_mode == 1) { /* timeout is in seconds (default) */
 			default_connection_timeout = 4;
-		} else if (timeout_mode == 2) { /* timeout is in milliseconds */
+		} else if(timeout_mode == 2) { /* timeout is in milliseconds */
 			default_connection_timeout = 4000;
 		}
 	}
@@ -419,50 +444,6 @@ error:
 }
 
 /* Fixup functions */
-
-/*
- * Fix http_query params: url (string that may contain pvars) and
- * result (writable pvar).
- */
-static int fixup_http_query_get(void **param, int param_no)
-{
-	if(param_no == 1) {
-		return fixup_spve_null(param, 1);
-	}
-
-	if(param_no == 2) {
-		if(fixup_pvar_null(param, 1) != 0) {
-			LM_ERR("http_query: failed to fixup result pvar\n");
-			return -1;
-		}
-		if(((pv_spec_t *)(*param))->setf == NULL) {
-			LM_ERR("http_query: result pvar is not writeble\n");
-			return -1;
-		}
-		return 0;
-	}
-
-	LM_ERR("invalid parameter number <%d>\n", param_no);
-	return -1;
-}
-
-/*
- * Free http_query params.
- */
-static int fixup_free_http_query_get(void **param, int param_no)
-{
-	if(param_no == 1) {
-		return fixup_free_spve_null(param, 1);
-	}
-
-	if(param_no == 2) {
-		return fixup_free_pvar_null(param, 1);
-	}
-
-	LM_ERR("http_query: invalid parameter number <%d>\n", param_no);
-	return -1;
-}
-
 
 /*
  * Fix curl_connect params: connection(string/pvar) url (string that may contain pvars) and
@@ -820,91 +801,6 @@ static int w_curl_connect_post(struct sip_msg *_m, char *_con, char *_url,
 	return ki_curl_connect_post_helper(_m, &con, &url, &ctype, &data, dst);
 }
 
-/*!
- * Fix http_query params: url (string that may contain pvars) and
- * result (writable pvar).
- */
-static int fixup_http_query_post(void **param, int param_no)
-{
-	if((param_no == 1) || (param_no == 2)) {
-		return fixup_spve_null(param, 1);
-	}
-
-	if(param_no == 3) {
-		if(fixup_pvar_null(param, 1) != 0) {
-			LM_ERR("failed to fixup result pvar\n");
-			return -1;
-		}
-		if(((pv_spec_t *)(*param))->setf == NULL) {
-			LM_ERR("result pvar is not writeble\n");
-			return -1;
-		}
-		return 0;
-	}
-
-	LM_ERR("invalid parameter number <%d>\n", param_no);
-	return -1;
-}
-
-/*!
- * Free http_query params.
- */
-static int fixup_free_http_query_post(void **param, int param_no)
-{
-	if((param_no == 1) || (param_no == 2)) {
-		return fixup_free_spve_null(param, 1);
-	}
-
-	if(param_no == 3) {
-		return fixup_free_pvar_null(param, 1);
-	}
-
-	LM_ERR("invalid parameter number <%d>\n", param_no);
-	return -1;
-}
-
-/*
- * Fix http_query params: url (string that may contain pvars) and
- * result (writable pvar).
- */
-static int fixup_http_query_post_hdr(void **param, int param_no)
-{
-	if((param_no >= 1) && (param_no <= 3)) {
-		return fixup_spve_null(param, 1);
-	}
-
-	if(param_no == 4) {
-		if(fixup_pvar_null(param, 1) != 0) {
-			LM_ERR("failed to fixup result pvar\n");
-			return -1;
-		}
-		if(((pv_spec_t *)(*param))->setf == NULL) {
-			LM_ERR("result pvar is not writeble\n");
-			return -1;
-		}
-		return 0;
-	}
-
-	LM_ERR("invalid parameter number <%d>\n", param_no);
-	return -1;
-}
-
-/*
- * Free http_query params.
- */
-static int fixup_free_http_query_post_hdr(void **param, int param_no)
-{
-	if((param_no >= 1) && (param_no <= 3)) {
-		return fixup_free_spve_null(param, 1);
-	}
-
-	if(param_no == 4) {
-		return fixup_free_pvar_null(param, 1);
-	}
-
-	LM_ERR("invalid parameter number <%d>\n", param_no);
-	return -1;
-}
 
 /*!
  * helper for HTTP-Query function
@@ -1031,8 +927,8 @@ static int w_http_query_post_hdr(
 /*!
  * helper for HTTP-Query function
  */
-static int ki_http_request_helper(
-		sip_msg_t *_m, str *met, str *url, str *body, str *hdrs, pv_spec_t *dst)
+static int ki_http_request_helper(sip_msg_t *_m, str *met, str *url, str *body,
+		str *hdrs, unsigned int httpver, pv_spec_t *dst)
 {
 	int ret = 0;
 	str result = {NULL, 0};
@@ -1045,7 +941,7 @@ static int ki_http_request_helper(
 	ret = http_client_request(_m, url->s, &result,
 			(body && body->s && body->len > 0) ? body->s : NULL,
 			(hdrs && hdrs->s && hdrs->len > 0) ? hdrs->s : NULL,
-			(met && met->s && met->len > 0) ? met->s : NULL);
+			(met && met->s && met->len > 0) ? met->s : NULL, httpver);
 
 	val.rs = result;
 	val.flags = PV_VAL_STR;
@@ -1080,7 +976,7 @@ static int ki_http_get_hdrs(
 		return -1;
 	}
 
-	return ki_http_request_helper(_m, &met, url, body, hdrs, dst);
+	return ki_http_request_helper(_m, &met, url, body, hdrs, 0, dst);
 }
 
 /*!
@@ -1117,8 +1013,79 @@ static int w_http_get_script(
 	}
 	dst = (pv_spec_t *)_result;
 
-	return ki_http_request_helper(_m, &met, &url, &body, &hdrs, dst);
+	return ki_http_request_helper(_m, &met, &url, &body, &hdrs, 0, dst);
 }
+
+/* CURL_HTTP_VERSION_2_PRIOR_KNOWLEDGE added in libcurl 7.49.0 */
+#if LIBCURL_VERSION_NUM < 0x073100
+#define CURL_HTTP_VERSION_2_PRIOR_KNOWLEDGE 0
+#endif
+
+/*!
+ * KEMI function to perform request with headers and body
+ */
+static int ki_http_query_request_v2pk(
+		sip_msg_t *_m, str *met, str *url, str *body, str *hdrs, str *dpv)
+{
+	pv_spec_t *dst;
+
+	dst = pv_cache_get(dpv);
+	if(dst == NULL) {
+		LM_ERR("failed to get pv spec for: %.*s\n", dpv->len, dpv->s);
+		return -1;
+	}
+	if(dst->setf == NULL) {
+		LM_ERR("target pv is not writable: %.*s\n", dpv->len, dpv->s);
+		return -1;
+	}
+
+	return ki_http_request_helper(
+			_m, met, url, body, hdrs, CURL_HTTP_VERSION_2_PRIOR_KNOWLEDGE, dst);
+}
+
+/*!
+ * Wrapper for http query request  function for cfg script
+ */
+static int w_http_query_request_v2pk(sip_msg_t *_m, char *_met, char *_url,
+		char *_body, char *_hdrs, char *_result)
+{
+	str met = {NULL, 0};
+	str url = {NULL, 0};
+	str body = {NULL, 0};
+	str hdrs = {NULL, 0};
+	pv_spec_t *dst;
+
+	if(get_str_fparam(&met, _m, (gparam_p)_met) != 0 || met.len <= 0) {
+		LM_ERR("METHOD has no value\n");
+		return -1;
+	}
+	if(get_str_fparam(&url, _m, (gparam_p)_url) != 0 || url.len <= 0) {
+		LM_ERR("URL has no value\n");
+		return -1;
+	}
+	if(_body && get_str_fparam(&body, _m, (gparam_p)_body) != 0) {
+		LM_ERR("DATA has no value\n");
+		return -1;
+	} else {
+		if(body.len == 0) {
+			body.s = NULL;
+		}
+	}
+
+	if(_hdrs && get_str_fparam(&hdrs, _m, (gparam_p)_hdrs) != 0) {
+		LM_ERR("HDRS has no value\n");
+		return -1;
+	} else {
+		if(hdrs.len == 0) {
+			hdrs.s = NULL;
+		}
+	}
+	dst = (pv_spec_t *)_result;
+
+	return ki_http_request_helper(_m, &met, &url, &body, &hdrs,
+			CURL_HTTP_VERSION_2_PRIOR_KNOWLEDGE, dst);
+}
+
 
 /*!
  * Wrapper for HTTP-GET (HDRS-Variant)
@@ -1127,6 +1094,109 @@ static int w_http_query_get_hdr(
 		sip_msg_t *_m, char *_url, char *_body, char *_hdrs, char *_result)
 {
 	return w_http_get_script(_m, _url, _body, _hdrs, _result);
+}
+
+/*!
+ * KEMI function to perform request with headers and body
+ */
+static int ki_http_query_request(
+		sip_msg_t *_m, str *met, str *url, str *body, str *hdrs, str *dpv)
+{
+	pv_spec_t *dst;
+
+	dst = pv_cache_get(dpv);
+	if(dst == NULL) {
+		LM_ERR("failed to get pv spec for: %.*s\n", dpv->len, dpv->s);
+		return -1;
+	}
+	if(dst->setf == NULL) {
+		LM_ERR("target pv is not writable: %.*s\n", dpv->len, dpv->s);
+		return -1;
+	}
+
+	return ki_http_request_helper(_m, met, url, body, hdrs, 0, dst);
+}
+
+/*!
+ * Wrapper for http query request  function for cfg script
+ */
+static int w_http_query_request(sip_msg_t *_m, char *_met, char *_url,
+		char *_body, char *_hdrs, char *_result)
+{
+	str met = {NULL, 0};
+	str url = {NULL, 0};
+	str body = {NULL, 0};
+	str hdrs = {NULL, 0};
+	pv_spec_t *dst;
+
+	if(get_str_fparam(&met, _m, (gparam_p)_met) != 0 || met.len <= 0) {
+		LM_ERR("METHOD has no value\n");
+		return -1;
+	}
+	if(get_str_fparam(&url, _m, (gparam_p)_url) != 0 || url.len <= 0) {
+		LM_ERR("URL has no value\n");
+		return -1;
+	}
+	if(_body && get_str_fparam(&body, _m, (gparam_p)_body) != 0) {
+		LM_ERR("DATA has no value\n");
+		return -1;
+	} else {
+		if(body.len == 0) {
+			body.s = NULL;
+		}
+	}
+
+	if(_hdrs && get_str_fparam(&hdrs, _m, (gparam_p)_hdrs) != 0) {
+		LM_ERR("HDRS has no value\n");
+		return -1;
+	} else {
+		if(hdrs.len == 0) {
+			hdrs.s = NULL;
+		}
+	}
+	dst = (pv_spec_t *)_result;
+
+	return ki_http_request_helper(_m, &met, &url, &body, &hdrs, 0, dst);
+}
+
+/*!
+ *
+ */
+static int ki_http_client_response_headers_set(sip_msg_t *_m, int ival)
+{
+	if(ival == 0) {
+		http_client_response_headers_reset();
+		http_client_response_headers_param = 0;
+	} else {
+		http_client_response_headers_param = 1;
+	}
+
+	return 1;
+}
+
+/*!
+ *
+ */
+static int w_http_client_response_headers_set(
+		sip_msg_t *_m, char *_pval, char *_p2)
+{
+	int ival = 0;
+
+	if(fixup_get_ivalue(_m, (gparam_t *)_pval, &ival) < 0) {
+		LM_ERR("failed to get parameter value\n");
+		return -1;
+	}
+	return ki_http_client_response_headers_set(_m, ival);
+}
+
+/*!
+ *
+ */
+static int w_http_client_response_headers_clear(
+		sip_msg_t *_m, char *_pval, char *_p2)
+{
+	http_client_response_headers_reset();
+	return 1;
 }
 
 /*!
@@ -1177,6 +1247,35 @@ static int pv_get_curlerror(
 	return pv_get_strval(msg, param, res, &curlerr);
 }
 
+/**
+ *
+ */
+static int pv_parse_httprhdr(pv_spec_p sp, str *in)
+{
+	if(sp == NULL || in == NULL || in->len <= 0)
+		return -1;
+
+	sp->pvp.pvn.type = PV_NAME_INTSTR;
+	sp->pvp.pvn.u.isname.type = AVP_VAL_STR;
+	sp->pvp.pvn.u.isname.name.s = *in;
+
+	return 0;
+}
+
+/**
+ *
+ */
+static int pv_get_httprhdr(sip_msg_t *msg, pv_param_t *param, pv_value_t *res)
+{
+	str hbody = STR_NULL;
+
+	if(http_client_response_headers_get(&param->pvn.u.isname.name.s, &hbody)
+			< 0) {
+		return pv_get_null(msg, param, res);
+	}
+
+	return pv_get_strval(msg, param, res, &hbody);
+}
 
 /*
  * Fix curl_get_redirect params: connection(string/pvar) url (string that may contain pvars) and
@@ -1280,6 +1379,16 @@ static sr_kemi_t sr_kemi_http_client_exports[] = {
 		SR_KEMIP_INT, ki_http_get_hdrs,
 		{ SR_KEMIP_STR, SR_KEMIP_STR, SR_KEMIP_STR,
 			SR_KEMIP_STR, SR_KEMIP_NONE, SR_KEMIP_NONE }
+	},
+	{ str_init("http_client"), str_init("query_request"),
+		SR_KEMIP_INT, ki_http_query_request,
+		{ SR_KEMIP_STR, SR_KEMIP_STR, SR_KEMIP_STR,
+			SR_KEMIP_STR, SR_KEMIP_STR, SR_KEMIP_NONE }
+	},
+	{ str_init("http_client"), str_init("query_request_v2pk"),
+		SR_KEMIP_INT, ki_http_query_request_v2pk,
+		{ SR_KEMIP_STR, SR_KEMIP_STR, SR_KEMIP_STR,
+			SR_KEMIP_STR, SR_KEMIP_STR, SR_KEMIP_NONE }
 	},
 	{ str_init("http_client"), str_init("curl_connect"),
 		SR_KEMIP_INT, ki_curl_connect,

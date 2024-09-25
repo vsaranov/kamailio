@@ -1169,6 +1169,10 @@ int tcp_connection_limit_srcip(union sockaddr_union *srcaddr, int limit)
 	int n;
 	int i;
 
+	if(limit <= 0) {
+		return 0;
+	}
+
 	n = 0;
 	su2ip_addr(&src_ip, srcaddr);
 	TCPCONN_LOCK;
@@ -1284,7 +1288,7 @@ inline static int find_listening_sock_info(
 			if(setsockopt(s, SOL_SOCKET, SO_REUSEADDR, (void *)&optval,
 					   sizeof(optval))
 					== -1) {
-				LM_ERR("setsockopt SO_REUSEADDR %s\n", strerror(errno));
+				LM_NOTICE("setsockopt SO_REUSEADDR [%s]\n", strerror(errno));
 				/* continue, not critical */
 			}
 #endif
@@ -1293,19 +1297,19 @@ inline static int find_listening_sock_info(
 			if(setsockopt(s, SOL_SOCKET, SO_REUSEPORT, (void *)&optval,
 					   sizeof(optval))
 					== -1) {
-				LM_ERR("setsockopt SO_REUSEPORT %s\n", strerror(errno));
+				LM_NOTICE("setsockopt SO_REUSEPORT [%s]\n", strerror(errno));
 				/* continue, not critical */
 			}
 #endif
 			if(unlikely(bind(s, &si->su.s, sockaddru_len(si->su)) != 0)) {
-				LM_WARN("binding to source address %s failed: %s [%d]\n",
+				LM_DBG("binding to source address %s failed: [%s] [%d]\n",
 						su2a(&si->su, sizeof(si->su)), strerror(errno), errno);
 				return -1;
 			}
 		}
 	} else {
 		if(unlikely(bind(s, &(*from)->s, sockaddru_len(**from)) != 0)) {
-			LM_WARN("binding to source address %s failed: %s [%d]\n",
+			LM_DBG("binding to source address %s failed: [%s] [%d]\n",
 					su2a(&si->su, sizeof(si->su)), strerror(errno), errno);
 			return -1;
 		}
@@ -1693,12 +1697,12 @@ void tcpconn_rm(struct tcp_connection *c)
 
 /* finds a connection, if id=0 uses the ip addr, port, local_ip and local port
  *  (host byte order) and tries to find the connection that matches all of
- *   them. Wild cards can be used for local_ip and local_port (a 0 filled
- *   ip address and/or a 0 local port).
+ *   them. Wild cards can be used for local_ip, local_port and proto (a 0 filled
+ *   ip address and/or a 0 local port and/or PROTO_NONE).
  * WARNING: unprotected (locks) use tcpconn_get unless you really
  * know what you are doing */
-struct tcp_connection *_tcpconn_find(
-		int id, struct ip_addr *ip, int port, struct ip_addr *l_ip, int l_port)
+struct tcp_connection *_tcpconn_find(int id, struct ip_addr *ip, int port,
+		struct ip_addr *l_ip, int l_port, sip_protos_t proto)
 {
 
 	struct tcp_connection *c;
@@ -1737,7 +1741,8 @@ struct tcp_connection *_tcpconn_find(
 					&& (ip_addr_cmp(ip, &a->parent->rcv.src_ip))
 					&& (is_local_ip_any
 							|| ip_addr_cmp(l_ip, &a->parent->rcv.dst_ip)
-							|| ip_addr_cmp(l_ip, &a->parent->cinfo.dst_ip))) {
+							|| ip_addr_cmp(l_ip, &a->parent->cinfo.dst_ip))
+					&& (proto == PROTO_NONE || a->parent->rcv.proto == proto)) {
 				LM_DBG("found connection by peer address (id: %d)\n",
 						a->parent->id);
 				return a->parent;
@@ -1749,16 +1754,16 @@ struct tcp_connection *_tcpconn_find(
 
 
 /**
- * find if a tcp connection exits by id or remote+local address/port
+ * find if a tcp connection exits by id or remote+local address/port and protocol
  * - return: 1 if found; 0 if not found
  */
 int tcpconn_exists(int conn_id, ip_addr_t *peer_ip, int peer_port,
-		ip_addr_t *local_ip, int local_port)
+		ip_addr_t *local_ip, int local_port, sip_protos_t proto)
 {
 	tcp_connection_t *c;
 
 	TCPCONN_LOCK;
-	c = _tcpconn_find(conn_id, peer_ip, peer_port, local_ip, local_port);
+	c = _tcpconn_find(conn_id, peer_ip, peer_port, local_ip, local_port, proto);
 	TCPCONN_UNLOCK;
 	if(c) {
 		return 1;
@@ -1769,12 +1774,14 @@ int tcpconn_exists(int conn_id, ip_addr_t *peer_ip, int peer_port,
 /* TCP connection find with locks and timeout
  * - local_addr contains the desired local ip:port. If null any local address
  * will be used. IN*ADDR_ANY or 0 port are wild cards.
+ * - proto is the protocol to match (PROTO_NONE for any)
  * - try_local_port makes the search use it first, instead of port from local_addr
  * If found, the connection's reference counter will be incremented, you might
  * want to decrement it after use.
  */
 struct tcp_connection *tcpconn_lookup(int id, struct ip_addr *ip, int port,
-		union sockaddr_union *local_addr, int try_local_port, ticks_t timeout)
+		union sockaddr_union *local_addr, int try_local_port, ticks_t timeout,
+		sip_protos_t proto)
 {
 	struct tcp_connection *c;
 	struct ip_addr local_ip;
@@ -1793,10 +1800,10 @@ struct tcp_connection *tcpconn_lookup(int id, struct ip_addr *ip, int port,
 	}
 	TCPCONN_LOCK;
 	if(likely(try_local_port != 0) && likely(local_port == 0)) {
-		c = _tcpconn_find(id, ip, port, &local_ip, try_local_port);
+		c = _tcpconn_find(id, ip, port, &local_ip, try_local_port, proto);
 	}
 	if(unlikely(c == NULL)) {
-		c = _tcpconn_find(id, ip, port, &local_ip, local_port);
+		c = _tcpconn_find(id, ip, port, &local_ip, local_port, proto);
 	}
 	if(likely(c)) {
 		atomic_inc(&c->refcnt);
@@ -1821,7 +1828,7 @@ struct tcp_connection *tcpconn_lookup(int id, struct ip_addr *ip, int port,
 struct tcp_connection *tcpconn_get(int id, struct ip_addr *ip, int port,
 		union sockaddr_union *local_addr, ticks_t timeout)
 {
-	return tcpconn_lookup(id, ip, port, local_addr, 0, timeout);
+	return tcpconn_lookup(id, ip, port, local_addr, 0, timeout, PROTO_NONE);
 }
 
 
@@ -1947,7 +1954,7 @@ int tcpconn_add_alias(int id, int port, int proto)
 	port = port ? port : ((proto == PROTO_TLS) ? SIPS_PORT : SIP_PORT);
 	TCPCONN_LOCK;
 	/* check if alias already exists */
-	c = _tcpconn_find(id, 0, 0, 0, 0);
+	c = _tcpconn_find(id, 0, 0, 0, 0, PROTO_NONE);
 	if(likely(c)) {
 		ip_addr_mk_any(c->rcv.src_ip.af, &zero_ip);
 		alias_flags = cfg_get(tcp, tcp_cfg, alias_flags);
@@ -2088,8 +2095,8 @@ int tcp_send(struct dest_info *dst, union sockaddr_union *from, const char *buf,
 	if(likely(port)) {
 		su2ip_addr(&ip, &dst->to);
 		if(tcp_connection_match == TCPCONN_MATCH_STRICT) {
-			c = tcpconn_lookup(
-					dst->id, &ip, port, from, try_local_port, con_lifetime);
+			c = tcpconn_lookup(dst->id, &ip, port, from, try_local_port,
+					con_lifetime, dst->proto);
 		} else {
 			c = tcpconn_get(dst->id, &ip, port, from, con_lifetime);
 		}
@@ -2105,8 +2112,8 @@ int tcp_send(struct dest_info *dst, union sockaddr_union *from, const char *buf,
 			if(likely(port)) {
 				/* try again w/o id */
 				if(tcp_connection_match == TCPCONN_MATCH_STRICT) {
-					c = tcpconn_lookup(
-							0, &ip, port, from, try_local_port, con_lifetime);
+					c = tcpconn_lookup(0, &ip, port, from, try_local_port,
+							con_lifetime, dst->proto);
 				} else {
 					c = tcpconn_get(0, &ip, port, from, con_lifetime);
 				}
@@ -3138,6 +3145,13 @@ int tcp_init(struct socket_info *sock_info)
 #endif
 
 	addr = &sock_info->su;
+	if((addr->s.sa_family == AF_INET6)
+			&& (sr_bind_ipv6_link_local & KSR_IPV6_LINK_LOCAL_SKIP)
+			&& IN6_IS_ADDR_LINKLOCAL(&addr->sin6.sin6_addr)) {
+		LM_DBG("skip binding on %s (bind mode: %d)\n", sock_info->address_str.s,
+				sr_bind_ipv6_link_local);
+		return 0;
+	}
 	/* sock_info->proto=PROTO_TCP; */
 	if(init_su(addr, &sock_info->address, sock_info->port_no) < 0) {
 		LM_ERR("could no init sockaddr_union\n");
@@ -3205,8 +3219,9 @@ int tcp_init(struct socket_info *sock_info)
 			LM_WARN("setsockopt v6 tos: %s (%d)\n", strerror(errno), tos);
 			/* continue since this is not critical */
 		}
-		if(sr_bind_ipv6_link_local != 0) {
-			LM_INFO("setting scope of %s\n", sock_info->address_str.s);
+		if(sr_bind_ipv6_link_local & KSR_IPV6_LINK_LOCAL_BIND) {
+			LM_INFO("setting scope of %s (bind mode: %d)\n",
+					sock_info->address_str.s, sr_bind_ipv6_link_local);
 			addr->sin6.sin6_scope_id =
 					ipv6_get_netif_scope(sock_info->address_str.s);
 		}
@@ -3269,9 +3284,15 @@ int tcp_init(struct socket_info *sock_info)
 	}
 #endif
 	if(bind(sock_info->socket, &addr->s, sockaddru_len(*addr)) == -1) {
-		LM_ERR("bind(%x, %p, %d) on %s:%d : %s\n", sock_info->socket, &addr->s,
-				(unsigned)sockaddru_len(*addr), sock_info->address_str.s,
-				sock_info->port_no, strerror(errno));
+		LM_ERR("bind(%x, %p, %d) on [%s]:%d : (%d / %s)\n", sock_info->socket,
+				&addr->s, (unsigned)sockaddru_len(*addr),
+				sock_info->address_str.s, sock_info->port_no, errno,
+				strerror(errno));
+		if(addr->s.sa_family == AF_INET6) {
+			LM_ERR("might be caused by using a link local address, is "
+				   "'bind_ipv6_link_local' set (now: %d)?\n",
+					sr_bind_ipv6_link_local);
+		}
 		goto error;
 	}
 	if(listen(sock_info->socket, TCP_LISTEN_BACKLOG) == -1) {
@@ -3663,6 +3684,12 @@ again:
 	return n;
 }
 
+static tcp_connection_t *_ksr_tcpcon_evcb = NULL;
+
+tcp_connection_t *ksr_tcpcon_evcb_get(void)
+{
+	return _ksr_tcpcon_evcb;
+}
 
 static int tcp_emit_closed_event(struct tcp_connection *con)
 {
@@ -3682,9 +3709,12 @@ static int tcp_emit_closed_event(struct tcp_connection *con)
 	if(likely(sr_event_enabled(SREV_TCP_CLOSED))) {
 		memset(&tev, 0, sizeof(tcp_closed_event_info_t));
 		tev.reason = reason;
+		tev.id = con->id;
 		tev.con = con;
 		evp.data = (void *)(&tev);
+		_ksr_tcpcon_evcb = con;
 		ret = sr_event_exec(SREV_TCP_CLOSED, &evp);
+		_ksr_tcpcon_evcb = NULL;
 	} else {
 		LM_DBG("no callback registering for handling TCP closed event\n");
 	}
@@ -4490,7 +4520,8 @@ static inline int handle_new_connect(struct socket_info *si)
 	if(likely(tcpconn)) {
 		if(tcp_accept_unique) {
 			if(tcpconn_exists(0, &tcpconn->rcv.dst_ip, tcpconn->rcv.dst_port,
-					   &tcpconn->rcv.src_ip, tcpconn->rcv.src_port)) {
+					   &tcpconn->rcv.src_ip, tcpconn->rcv.src_port,
+					   si->proto)) {
 				LM_ERR("duplicated connection by local and remote addresses\n");
 				_tcpconn_free(tcpconn);
 				tcp_safe_close(new_sock);
@@ -5426,7 +5457,8 @@ int wss_send(dest_info_t *dst, const char *buf, unsigned len)
 			su2ip_addr(&ip, &dst->to);
 			if(tcp_connection_match == TCPCONN_MATCH_STRICT) {
 				con = tcpconn_lookup(dst->id, &ip, port, from,
-						(dst->send_sock) ? dst->send_sock->port_no : 0, 0);
+						(dst->send_sock) ? dst->send_sock->port_no : 0, 0,
+						dst->proto);
 			} else {
 				con = tcpconn_get(dst->id, &ip, port, from, 0);
 			}

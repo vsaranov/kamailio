@@ -1033,7 +1033,7 @@ int ht_table_spec(char *spec)
 
 			coldelim = tok.s[0];
 			LM_DBG("htable [%.*s] - coldelim [%c]\n", name.len, name.s,
-				   coldelim);
+					coldelim);
 		} else if(pit->name.len == 7
 				  && strncmp(pit->name.s, "colnull", 7) == 0) {
 			if(tok.len > 1)
@@ -1045,8 +1045,7 @@ int ht_table_spec(char *spec)
 				colnull = tok.s[0];
 			}
 
-			LM_DBG("htable [%.*s] - colnull [%c]\n", name.len, name.s,
-			   		colnull);
+			LM_DBG("htable [%.*s] - colnull [%c]\n", name.len, name.s, colnull);
 		} else {
 			goto error;
 		}
@@ -1383,6 +1382,18 @@ int ht_rm_cell_op(str *sre, ht_t *ht, int mode, int op)
 							&& strncmp(it->name.s, sre->s, sre->len) == 0) {
 						match = 1;
 					}
+				} else if(op == HT_RM_OP_EW) {
+					if(sre->len <= it->name.len
+							&& strncmp(it->name.s + it->name.len - sre->len,
+									   sre->s, sre->len)
+									   == 0) {
+						match = 1;
+					}
+				} else if(op == HT_RM_OP_IN) {
+					if(sre->len <= it->name.len
+							&& str_search(&it->name, sre) != NULL) {
+						match = 1;
+					}
 				}
 			} else {
 				if(op == HT_RM_OP_SW) {
@@ -1390,6 +1401,23 @@ int ht_rm_cell_op(str *sre, ht_t *ht, int mode, int op)
 						if(sre->len <= it->value.s.len
 								&& strncmp(it->value.s.s, sre->s, sre->len)
 										   == 0) {
+							match = 1;
+						}
+					}
+				} else if(op == HT_RM_OP_EW) {
+					if(it->flags & AVP_VAL_STR) {
+						if(sre->len <= it->value.s.len
+								&& strncmp(it->value.s.s + it->value.s.len
+												   - sre->len,
+										   sre->s, sre->len)
+										   == 0) {
+							match = 1;
+						}
+					}
+				} else if(op == HT_RM_OP_IN) {
+					if(it->flags & AVP_VAL_STR) {
+						if(sre->len <= it->value.s.len
+								&& str_search(&it->value.s, sre) != NULL) {
 							match = 1;
 						}
 					}

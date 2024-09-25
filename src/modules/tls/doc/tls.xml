@@ -65,6 +65,10 @@
 			loaded first (be in the first "loadmodule" in &kamailio;.cfg).
 		</para>
 		<para>
+			IMPORTANT: For libssl v3.x, the core parameter "tls_threads_mode"
+			has to be set, see the Core Cookbook for possible values.
+		</para>
+		<para>
 			IMPORTANT: using this module compiled with newer versions of libssl
 			(e.g., v1.1+) may require &kamailio; to be started with
 			<emphasis>--atexit=no</emphasis> command line parameters to avoid
@@ -93,7 +97,10 @@
 		</para>
 		<para>
 		When installing tls module of kamailio, a sample 'tls.cfg' file is deployed in the same
-		folder with 'kamailio.cfg', along with freshly generated self signed certificates.
+		folder with 'kamailio.cfg'. For freshly generated self signed certificates make must be called from tls folder
+		<programlisting>
+make install-tls-cert
+		</programlisting>
 		</para>
 		<para>
 		HINT: be sure you have <emphasis>enable_tls=yes</emphasis> to your kamailio.cfg.
@@ -285,10 +292,6 @@ make -C modules/tls extra_defs="-DTLS_WR_DEBUG -DTLS_RD_DEBUG"
 			connection establishment and not after).
 		</para>
 		<para>
-			TLS specific config reloading is not safe, so for now better don't use it,
-			especially under heavy traffic.
-		</para>
-		<para>
 			This documentation is incomplete.
 			The provided selects are not documented in this file. A list with all the
 			ones implemented by the TLS module can be found in the Cookbook
@@ -364,4 +367,3 @@ event_route[tls:connection-out] {
 	</section>
 	</chapter>
 </book>
-

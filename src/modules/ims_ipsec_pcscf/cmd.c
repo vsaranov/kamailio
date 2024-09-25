@@ -5,7 +5,7 @@
  *
  * The initial version of this code was written by Dragos Vingarzan
  * (dragos(dot)vingarzan(at)fokus(dot)fraunhofer(dot)de and the
- * Fruanhofer Institute. It was and still is maintained in a separate
+ * Fraunhofer FOKUS Institute. It was and still is maintained in a separate
  * branch of the original SER. We are therefore migrating it to
  * Kamailio/SR and look forward to maintaining it from here on out.
  * 2011/2012 Smile Communications, Pty. Ltd.
@@ -15,7 +15,7 @@
  * effort to add full IMS support to Kamailio/SR using a new and
  * improved architecture
  *
- * NB: Alot of this code was originally part of OpenIMSCore,
+ * NB: A lot of this code was originally part of OpenIMSCore,
  * FhG Fokus.
  * Copyright (C) 2004-2006 FhG Fokus
  * Thanks for great work! This is an effort to
@@ -88,11 +88,12 @@ extern struct tm_binds tmb;
 #define IPSEC_NOALIAS_SEARCH (1 << 4)
 /* if set - do not reset dst uri for IPsec forward */
 #define IPSEC_NODSTURI_RESET (1 << 5)
-/* if set - use user equipment client port as target for requests over TCP */
+/* if set - use user equipment client port as target for requests over TCP/TLS */
 #define IPSEC_TCPPORT_UEC (1 << 6)
-/* if set - build new dst uri with transport parameter for TCP */
+/* if set - build new dst uri with transport parameter for TCP/TLS */
 #define IPSEC_SETDSTURI_FULL (1 << 7)
-/* if set - use Via attributes for routing reply */
+/* if set - use Via attributes for routing reply
+ * and protocol from next hop address for request */
 #define IPSEC_FORWARD_USEVIA (1 << 8)
 /* if set - try TCP if corresponding UDP socket is not found */
 #define IPSEC_FORWARD_TRYTCP (1 << 9)
@@ -186,7 +187,7 @@ static int fill_contact(
 	if(m->first_line.type == SIP_REQUEST) {
 		char *alias_start;
 		struct sip_uri uri;
-		str suri;
+		str suri = STR_NULL;
 
 		memset(&uri, 0, sizeof(struct sip_uri));
 
@@ -195,17 +196,20 @@ static int fill_contact(
 			suri.len = ruri->len;
 			LM_DBG("using param r-uri for contact filling: %.*s\n", suri.len,
 					suri.s);
-		} else if((sflags & IPSEC_DSTADDR_SEARCH) && m->dst_uri.s != NULL
-				  && m->dst_uri.len > 0) {
+		}
+		if((sflags & IPSEC_DSTADDR_SEARCH) && suri.s == NULL
+				&& m->dst_uri.s != NULL && m->dst_uri.len > 0) {
 			suri = m->dst_uri;
 			LM_DBG("using dst uri for contact filling: %.*s\n", suri.len,
 					suri.s);
-		} else if((sflags & IPSEC_RURIADDR_SEARCH) && m->new_uri.s != NULL
-				  && m->new_uri.len > 0) {
+		}
+		if((sflags & IPSEC_RURIADDR_SEARCH) && suri.s == NULL
+				&& m->new_uri.s != NULL && m->new_uri.len > 0) {
 			suri = m->new_uri;
 			LM_DBG("using new r-uri for contact filling: %.*s\n", suri.len,
 					suri.s);
-		} else {
+		}
+		if(suri.s == NULL) {
 			suri = m->first_line.u.request.uri;
 			LM_DBG("using original uri for contact filling: %.*s\n", suri.len,
 					suri.s);
@@ -896,12 +900,10 @@ int ipsec_create(struct sip_msg *m, udomain_t *d, int _cflags)
 		goto cleanup;
 	}
 
-	if(ul.update_pcontact(d, &ci, pcontact) != 0) {
-		LM_ERR("Error updating contact\n");
-		goto cleanup;
-	}
-
 	if(ci.via_port == SIP_PORT) {
+		if(req_sec_params != NULL) {
+			pcontact->security_temp->data.ipsec = s;
+		}
 		// Update temp security parameters
 		if(ul.update_temp_security(d, pcontact->security_temp->type,
 				   pcontact->security_temp, pcontact)
@@ -910,6 +912,10 @@ int ipsec_create(struct sip_msg *m, udomain_t *d, int _cflags)
 		}
 	}
 
+	if(ul.update_pcontact(d, &ci, pcontact) != 0) {
+		LM_ERR("Error updating contact\n");
+		goto cleanup;
+	}
 
 	if(add_supported_secagree_header(m) != 0) {
 		goto cleanup;
@@ -942,6 +948,37 @@ cleanup:
 	return ret;
 }
 
+/**
+ *
+ */
+int ims_ipsec_get_forward_proto(sip_msg_t *msg)
+{
+	struct sip_uri parsed_uri;
+	str uri;
+
+	if(msg == NULL) {
+		LM_ERR("no message structure - fallback to UDP\n");
+		return PROTO_UDP;
+	}
+
+	if(msg->dst_uri.s != NULL && msg->dst_uri.len > 0) {
+		uri = msg->dst_uri;
+	} else {
+		if(msg->new_uri.s != NULL && msg->new_uri.len > 0) {
+			uri = msg->new_uri;
+		} else {
+			uri = msg->first_line.u.request.uri;
+		}
+	}
+	if(parse_uri(uri.s, uri.len, &parsed_uri) != 0) {
+		LM_ERR("failed to parse next hop uri [%.*s]\n", uri.len, uri.s);
+		return PROTO_UDP;
+	}
+	if(parsed_uri.proto == PROTO_NONE || parsed_uri.proto == PROTO_OTHER) {
+		return PROTO_UDP;
+	}
+	return parsed_uri.proto;
+}
 
 int ipsec_forward(struct sip_msg *m, udomain_t *d, int _cflags)
 {
@@ -1021,13 +1058,15 @@ int ipsec_forward(struct sip_msg *m, udomain_t *d, int _cflags)
 	}
 
 	if(m->first_line.type == SIP_REPLY) {
+		/* reply handling */
 		if(_cflags & IPSEC_FORWARD_USEVIA) {
+			/* req - corresponding request from transaction */
 			dst_proto = vb ? vb->proto : req->rcv.proto;
 
 			// As per ETSI TS 133 203 V11.2.0, 7.1 Security association parameters
 			// https://tools.ietf.org/html/rfc3261#section-18
 			// From Reply and TCP send via the same ports Request was recevied.
-			if(dst_proto == PROTO_TCP) {
+			if(dst_proto == PROTO_TCP || dst_proto == PROTO_TLS) {
 				src_port = req->rcv.dst_port;
 				dst_port = req->rcv.src_port;
 			} else {
@@ -1041,63 +1080,53 @@ int ipsec_forward(struct sip_msg *m, udomain_t *d, int _cflags)
 				}
 			}
 		} else {
-			// for Reply get the dest proto from the received request
+			// dest proto from the corresponding request from transaction
 			dst_proto = req->rcv.proto;
-			// for Reply and TCP sends from P-CSCF server port, for Reply and UDP sends from P-CSCF client port
-			src_port = dst_proto == PROTO_TCP ? s->port_ps : s->port_pc;
+			if(dst_proto == PROTO_TCP || dst_proto == PROTO_TLS) {
+				// for TCP/TLS send from P-CSCF server port
+				src_port = s->port_ps;
 
-			// for Reply and TCP sends to UE client port, for Reply and UDP sends to UE server port
-			dst_port = dst_proto == PROTO_TCP ? s->port_uc : s->port_us;
+				// for TCP/TLS send to UE client port
+				dst_port = s->port_uc;
+			} else {
+				// for UDP send from P-CSCF client port
+				src_port = s->port_pc;
 
-			// Check send socket
+				// for UDP send to UE server port
+				dst_port = s->port_us;
+			}
+			// find send socket
 			client_sock =
 					grep_sock_info(via_host.af == AF_INET ? &ipsec_listen_addr
 														  : &ipsec_listen_addr6,
 							src_port, dst_proto);
 			if(!client_sock) {
+				/* fallback: P-CSCF client port to UE server port */
 				src_port = s->port_pc;
 				dst_port = s->port_us;
 			}
 		}
 	} else {
+		/* request handling */
 		if(_cflags & IPSEC_FORWARD_USEVIA) {
-			if(req->first_line.u.request.method_value == METHOD_REGISTER) {
-				// for Request get the dest proto from the saved contact
-				dst_proto = pcontact->received_proto;
-			} else {
-				if(m->dst_uri.s != NULL
-						&& strstr(m->dst_uri.s, ";transport=tcp") != NULL) {
-					dst_proto = PROTO_TCP;
-				} else if(m->dst_uri.s != NULL
-						  && strstr(m->dst_uri.s, ";transport=tls") != NULL) {
-					dst_proto = PROTO_TLS;
-				} else {
-					dst_proto = m->rcv.proto;
-				}
-			}
-
-			// for Request sends from P-CSCF client port
-			src_port = s->port_pc;
-			// for Request sends to UE server port
-			dst_port = s->port_us;
+			dst_proto = ims_ipsec_get_forward_proto(m);
 		} else {
-			// for Request get the dest proto from the saved contact
 			dst_proto = pcontact->received_proto;
+		}
+		if((_cflags & IPSEC_TCPPORT_UEC)
+				&& ((dst_proto == PROTO_TCP) || (dst_proto == PROTO_TLS))) {
+			// TCP/TLS send from P-CSCF server port, UDP sends from P-CSCF client port
+			src_port = s->port_ps;
 
-			if(_cflags & IPSEC_TCPPORT_UEC) {
-				// for Request and TCP sends from P-CSCF server port, for Request and UDP sends from P-CSCF client port
-				src_port = dst_proto == PROTO_TCP ? s->port_ps : s->port_pc;
+			// for TCP/TLS sends to UE client port, for UDP sends to UE server port
+			dst_port = s->port_uc;
 
-				// for Request and TCP sends to UE client port, for Request and UDP sends to UE server port
-				dst_port = dst_proto == PROTO_TCP ? s->port_uc : s->port_us;
+		} else {
+			// send from P-CSCF client port
+			src_port = s->port_pc;
 
-			} else {
-				// for Request sends from P-CSCF client port
-				src_port = s->port_pc;
-
-				// for Request sends to UE server port
-				dst_port = s->port_us;
-			}
+			// send to UE server port
+			dst_port = s->port_us;
 		}
 	}
 
@@ -1126,6 +1155,11 @@ int ipsec_forward(struct sip_msg *m, udomain_t *d, int _cflags)
 			buf_len =
 					snprintf(buf, sizeof(buf) - 1, "sip:%.*s:%d;transport=tcp",
 							ci.via_host.len, ci.via_host.s, dst_port);
+		} else if((_cflags & IPSEC_SETDSTURI_FULL)
+				  && (dst_proto == PROTO_TLS)) {
+			buf_len =
+					snprintf(buf, sizeof(buf) - 1, "sip:%.*s:%d;transport=tls",
+							ci.via_host.len, ci.via_host.s, dst_port);
 		} else {
 			buf_len = snprintf(buf, sizeof(buf) - 1, "sip:%.*s:%d",
 					ci.via_host.len, ci.via_host.s, dst_port);
@@ -1139,7 +1173,7 @@ int ipsec_forward(struct sip_msg *m, udomain_t *d, int _cflags)
 		memcpy(m->dst_uri.s, buf, buf_len);
 		m->dst_uri.len = buf_len;
 		m->dst_uri.s[m->dst_uri.len] = '\0';
-		LM_ERR("new destination URI: %.*s\n", m->dst_uri.len, m->dst_uri.s);
+		LM_INFO("new destination URI: %.*s\n", m->dst_uri.len, m->dst_uri.s);
 	}
 
 	// Set send socket

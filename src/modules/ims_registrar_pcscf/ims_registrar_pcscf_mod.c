@@ -5,7 +5,7 @@
  *
  * The initial version of this code was written by Dragos Vingarzan
  * (dragos(dot)vingarzan(at)fokus(dot)fraunhofer(dot)de and the
- * Fruanhofer Institute. It was and still is maintained in a separate
+ * Fraunhofer FOKUS Institute. It was and still is maintained in a separate
  * branch of the original SER. We are therefore migrating it to
  * Kamailio/SR and look forward to maintaining it from here on out.
  * 2011/2012 Smile Communications, Pty. Ltd.
@@ -15,7 +15,7 @@
  * effort to add full IMS support to Kamailio/SR using a new and
  * improved architecture
  *
- * NB: Alot of this code was originally part of OpenIMSCore,
+ * NB: A lot of this code was originally part of OpenIMSCore,
  * FhG Fokus.
  * Copyright (C) 2004-2006 FhG Fokus
  * Thanks for great work! This is an effort to
@@ -83,9 +83,15 @@ int publish_reginfo = 0;
 int subscribe_to_reginfo = 0;
 int subscription_expires = 3600;
 int ignore_reg_state = 0;
-/**!< ignore port checks between received port on message and registration received port.
+/** ignore port checks between received port on message and registration received port.
  * this is useful for example if you register with UDP but possibly send invite over TCP (message too big) */
 int ignore_contact_rxport_check = 0;
+/** ignore proto checks between the one that the message was received over and registration one.
+ * Since in IMS is registering the IP:port of the UE with IPsec for any transport, why was this even needed? Hence
+ * setting to 1 as default.*/
+int ignore_contact_rxproto_check = 1;
+/** If set, this uses the bottom Via for identification of UE, always, on both requests and responses, over Contact. */
+int trust_bottom_via = 0;
 
 time_t time_now;
 
@@ -102,11 +108,11 @@ int reginfo_queue_size_threshold =
 
 
 char *rcv_avp_param = 0;
-unsigned short rcv_avp_type = 0;
-int_str rcv_avp_name;
+avp_flags_t rcv_avp_type = 0;
+avp_name_t rcv_avp_name;
 
 ims_registrar_pcscf_params_t _imsregp_params = {
-	.delete_delay = 0
+		.delete_delay = 0,
 };
 
 // static str orig_prefix = {"sip:orig@",9};
@@ -186,11 +192,14 @@ static param_export_t params[] = {{"pcscf_uri", PARAM_STR, &pcscf_uri},
 		{"subscription_expires", INT_PARAM, &subscription_expires},
 		{"ignore_contact_rxport_check", INT_PARAM,
 				&ignore_contact_rxport_check},
+		{"ignore_contact_rxproto_check", INT_PARAM,
+				&ignore_contact_rxproto_check},
 		{"ignore_reg_state", INT_PARAM, &ignore_reg_state},
 		{"force_icscf_uri", PARAM_STR, &force_icscf_uri},
 		{"reginfo_queue_size_threshold", INT_PARAM,
 				&reginfo_queue_size_threshold},
 		{"delete_delay", PARAM_INT, &_imsregp_params.delete_delay},
+		{"trust_bottom_via", PARAM_INT, &trust_bottom_via},
 		//	{"store_profile_dereg",	INT_PARAM, &store_data_on_dereg},
 		{0, 0, 0}};
 
@@ -298,14 +307,13 @@ static int mod_init(void)
 	bind_ipsec_pcscf =
 			(bind_ipsec_pcscf_t)find_export("bind_ims_ipsec_pcscf", 1, 0);
 	if(!bind_ipsec_pcscf) {
-		LM_ERR("can't bind ims_ipsec_pcscf\n");
-		return -1;
+		LM_WARN("can't bind ims_ipsec_pcscf - will start without\n");
+	} else {
+		if(bind_ipsec_pcscf(&ipsec_pcscf) < 0) {
+			return -1;
+		}
+		LM_INFO("Successfully bound to PCSCF IPSEC module\n");
 	}
-
-	if(bind_ipsec_pcscf(&ipsec_pcscf) < 0) {
-		return -1;
-	}
-	LM_INFO("Successfully bound to PCSCF IPSEC module\n");
 
 	if(subscribe_to_reginfo == 1) {
 		/* Bind to PUA: */

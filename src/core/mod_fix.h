@@ -147,7 +147,14 @@ int fixup_free_igp_all(void **param, int param_no);
 int fixup_spve_igp(void **param, int param_no);
 int fixup_free_spve_igp(void **param, int param_no);
 int fixup_spve_pvar(void **param, int param_no);
+int fixup_spve1_pvar(void **param, int param_no);
 int fixup_free_spve_pvar(void **param, int param_no);
+int fixup_spve2_pvar(void **param, int param_no);
+int fixup_free_spve2_pvar(void **param, int param_no);
+int fixup_spve3_pvar(void **param, int param_no);
+int fixup_free_spve3_pvar(void **param, int param_no);
+int fixup_spve4_pvar(void **param, int param_no);
+int fixup_free_spve4_pvar(void **param, int param_no);
 
 int fixup_spve_spve_igp(void **param, int param_no);
 int fixup_free_spve_spve_igp(void **param, int param_no);
@@ -168,10 +175,22 @@ int fixup_free_igp_regexp(void **param, int param_no);
 int fixup_ssi(void **param, int param_no);
 int fixup_free_ssi(void **param, int param_no);
 
+int fixup_sii(void **param, int param_no);
+int fixup_free_sii(void **param, int param_no);
+
 int fixup_sssi(void **param, int param_no);
 int fixup_free_sssi(void **param, int param_no);
 
 int fixup_ssii(void **param, int param_no);
 int fixup_free_ssii(void **param, int param_no);
+
+int fixup_isi(void **param, int param_no);
+int fixup_free_isi(void **param, int param_no);
+
+int fixup_isii(void **param, int param_no);
+int fixup_free_isii(void **param, int param_no);
+
+int fixup_isiii(void **param, int param_no);
+int fixup_free_isiii(void **param, int param_no);
 
 #endif

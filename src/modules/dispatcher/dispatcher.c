@@ -185,6 +185,7 @@ static int w_ds_reload(struct sip_msg* msg, char*, char*);
 static int w_ds_is_active(sip_msg_t *msg, char *pset, char *p2);
 static int w_ds_is_active_uri(sip_msg_t *msg, char *pset, char *puri);
 static int w_ds_dsg_fetch(sip_msg_t *msg, char *pset, char *p2);
+static int w_ds_oc_set_attrs(sip_msg_t*, char*, char*, char*, char*, char*);
 
 static int fixup_ds_is_from_list(void** param, int param_no);
 static int fixup_ds_list_exist(void** param,int param_no);
@@ -261,6 +262,8 @@ static cmd_export_t cmds[]={
 		0, 0, 0},
 	{"ds_reload", (cmd_function)w_ds_reload, 0,
 		0, 0, ANY_ROUTE},
+	{"ds_oc_set_attrs",  (cmd_function)w_ds_oc_set_attrs, 5,
+		fixup_isiii, fixup_free_isiii, ANY_ROUTE},
 	{"ds_dsg_fetch",  (cmd_function)w_ds_dsg_fetch, 1,
 		fixup_igp_null, fixup_free_igp_null, ANY_ROUTE},
 	{0,0,0,0,0,0}
@@ -1389,6 +1392,42 @@ static int w_ds_dsg_fetch(sip_msg_t *msg, char *pset, char *p2)
 /**
  *
  */
+static int w_ds_oc_set_attrs(sip_msg_t *msg, char *pset, char *puri,
+		char *prval, char *ptval, char *psval)
+{
+	int iset;
+	str suri;
+	int irval;
+	int itval;
+	int isval;
+
+	if(fixup_get_ivalue(msg, (gparam_t *)pset, &iset) != 0) {
+		LM_ERR("cannot get set id param value\n");
+		return -1;
+	}
+	if(fixup_get_svalue(msg, (gparam_t *)puri, &suri) != 0) {
+		LM_ERR("cannot get uri value\n");
+		return -1;
+	}
+	if(fixup_get_ivalue(msg, (gparam_t *)prval, &irval) != 0) {
+		LM_ERR("cannot get rate param value\n");
+		return -1;
+	}
+	if(fixup_get_ivalue(msg, (gparam_t *)ptval, &itval) != 0) {
+		LM_ERR("cannot get time interval param value\n");
+		return -1;
+	}
+	if(fixup_get_ivalue(msg, (gparam_t *)psval, &isval) != 0) {
+		LM_ERR("cannot get seq param value\n");
+		return -1;
+	}
+
+	return ds_oc_set_attrs(msg, iset, &suri, irval, itval, isval);
+}
+
+/**
+ *
+ */
 static int pv_get_dsg(sip_msg_t *msg, pv_param_t *param, pv_value_t *res)
 {
 	ds_set_t *dsg;
@@ -1425,9 +1464,11 @@ static int pv_get_dsg(sip_msg_t *msg, pv_param_t *param, pv_value_t *res)
 		case 2: /* inactive */
 			return pv_get_sintval(msg, param, res, inactive);
 		case 3: /* pactive */
-			return pv_get_sintval(msg, param, res, (int)((active*100)/count));
+			return pv_get_sintval(
+					msg, param, res, (int)((active * 100) / count));
 		case 4: /* pinactive */
-			return pv_get_sintval(msg, param, res, (int)((inactive*100)/count));
+			return pv_get_sintval(
+					msg, param, res, (int)((inactive * 100) / count));
 		default:
 			return pv_get_null(msg, param, res);
 	}
@@ -1814,6 +1855,8 @@ int ds_rpc_print_set(
 
 		if(node->dlist[j].flags & DS_PROBING_DST)
 			c[1] = 'P';
+		else if(node->dlist[j].flags & DS_NOPING_DST)
+			c[1] = 'N';
 		else
 			c[1] = 'X';
 
@@ -1828,24 +1871,31 @@ int ds_rpc_print_set(
 			ipbuf[0] = '\0';
 			ip_addr2sbufz(
 					&node->dlist[j].ip_address, ipbuf, IP_ADDR_MAX_STRZ_SIZE);
-			if(rpc->struct_add(vh, "Ssddjj", "HOST", &node->dlist[j].host,
+			if(rpc->struct_add(vh, "Ssddjjujjjj", "HOST", &node->dlist[j].host,
 					   "IPADDR", ipbuf, "PORT", (int)node->dlist[j].port,
 					   "PROTOID", (int)node->dlist[j].proto, "DNSTIME_SEC",
 					   (unsigned long)node->dlist[j].dnstime.tv_sec,
 					   "DNSTIME_USEC",
-					   (unsigned long)node->dlist[j].dnstime.tv_usec)
+					   (unsigned long)node->dlist[j].dnstime.tv_usec, "OCRATE",
+					   node->dlist[j].ocdata.ocrate, "OCIDX",
+					   (unsigned long)node->dlist[j].ocdata.ocidx, "OCSEQ",
+					   (unsigned long)node->dlist[j].ocdata.ocseq, "OCTIME_SEC",
+					   (unsigned long)node->dlist[j].ocdata.octime.tv_sec,
+					   "OCTIME_USEC",
+					   (unsigned long)node->dlist[j].ocdata.octime.tv_usec)
 					< 0) {
 				rpc->fault(ctx, 500, "Internal error creating dest struct");
 				return -1;
 			}
 		}
 
-		if(mode != DS_RPC_PRINT_SHORT && node->dlist[j].attrs.body.s != NULL) {
+		if((mode != DS_RPC_PRINT_SHORT && node->dlist[j].attrs.body.s != NULL)
+				|| (mode == DS_RPC_PRINT_FULL)) {
 			if(rpc->struct_add(vh, "{", "ATTRS", &wh) < 0) {
 				rpc->fault(ctx, 500, "Internal error creating dest struct");
 				return -1;
 			}
-			if(rpc->struct_add(wh, "SSdddSSS", "BODY",
+			if(rpc->struct_add(wh, "SSdddSSSjj", "BODY",
 					   &(node->dlist[j].attrs.body), "DUID",
 					   (node->dlist[j].attrs.duid.s)
 							   ? &(node->dlist[j].attrs.duid)
@@ -1863,7 +1913,9 @@ int ds_rpc_print_set(
 					   "OBPROXY",
 					   (node->dlist[j].attrs.obproxy.s)
 							   ? &(node->dlist[j].attrs.obproxy)
-							   : &data)
+							   : &data,
+					   "OCMIN", node->dlist[j].ocdata.ocmin, "OCMAX",
+					   node->dlist[j].ocdata.ocmax)
 					< 0) {
 				rpc->fault(ctx, 500, "Internal error creating attrs struct");
 				return -1;
@@ -1910,6 +1962,8 @@ static void dispatcher_rpc_list(rpc_t *rpc, void *ctx)
 	int n;
 	str smode;
 	int vmode = DS_RPC_PRINT_NORMAL;
+	ds_set_t *dslist = NULL;
+	int dslistnr = 0;
 
 	n = rpc->scan(ctx, "*S", &smode);
 	if(n == 1) {
@@ -1920,8 +1974,8 @@ static void dispatcher_rpc_list(rpc_t *rpc, void *ctx)
 		}
 	}
 
-	ds_set_t *dslist = ds_get_list();
-	int dslistnr = ds_get_list_nr();
+	dslist = ds_get_list();
+	dslistnr = ds_get_list_nr();
 
 	if(dslist == NULL || dslistnr <= 0) {
 		LM_DBG("no destination sets\n");
@@ -2201,6 +2255,56 @@ static void dispatcher_rpc_hash(rpc_t *rpc, void *ctx)
 	return;
 }
 
+static const char *dispatcher_rpc_oclist_doc[2] = {
+		"List overload control details for a group", 0};
+
+/*
+ * RPC command to set the state of a destination address
+ */
+static void dispatcher_rpc_oclist(rpc_t *rpc, void *ctx)
+{
+	int group = 0;
+	int i = 0;
+	ds_set_t *node = NULL;
+	void *th = NULL;
+
+	if(rpc->scan(ctx, "d", &group) != 1) {
+		rpc->fault(ctx, 500, "Invalid Parameters");
+		return;
+	}
+
+	/* get the index of the set */
+	node = ds_list_lookup(group);
+	if(node == NULL) {
+		LM_ERR("destination set [%d] not found\n", group);
+		rpc->fault(ctx, 404, "Destination Group Not Found");
+		return;
+	}
+
+	for(i = 0; i < node->nr; i++) {
+		/* add entry node */
+		if(rpc->add(ctx, "{", &th) < 0) {
+			rpc->fault(ctx, 500, "Internal error root reply");
+			return;
+		}
+		if(rpc->struct_add(th, "dSdduuujjuu", "group", group, "uri",
+				   &node->dlist[i].uri, "flags", node->dlist[i].flags,
+				   "priority", node->dlist[i].priority, "ocrate",
+				   node->dlist[i].ocdata.ocrate, "ocidx",
+				   node->dlist[i].ocdata.ocidx, "ocseq",
+				   node->dlist[i].ocdata.ocseq, "octime_sec",
+				   (unsigned long)node->dlist[i].ocdata.octime.tv_sec,
+				   "octime_usec",
+				   (unsigned long)node->dlist[i].ocdata.octime.tv_usec, "ocmin",
+				   node->dlist[i].ocdata.ocmin, "ocmax",
+				   node->dlist[i].ocdata.ocmax)
+				< 0) {
+			rpc->fault(ctx, 500, "Internal error main structure");
+			return;
+		}
+	}
+}
+
 /* clang-format off */
 rpc_export_t dispatcher_rpc_cmds[] = {
 	{"dispatcher.reload", dispatcher_rpc_reload,
@@ -2219,6 +2323,8 @@ rpc_export_t dispatcher_rpc_cmds[] = {
 		dispatcher_rpc_remove_doc, 0},
 	{"dispatcher.hash",   dispatcher_rpc_hash,
 		dispatcher_rpc_hash_doc, 0},
+	{"dispatcher.oclist", dispatcher_rpc_oclist,
+		dispatcher_rpc_oclist_doc, RPC_RET_ARRAY},
 	{0, 0, 0, 0}
 };
 /* clang-format on */

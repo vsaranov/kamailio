@@ -46,7 +46,8 @@
 #define DS_DISABLED_DST		4  /*!< admin disabled destination */
 #define DS_PROBING_DST		8  /*!< checking destination */
 #define DS_NODNSARES_DST	16 /*!< no DNS A/AAAA resolve for host in uri */
-#define DS_STATES_ALL		31 /*!< all bits for the states of destination */
+#define DS_NOPING_DST		32 /*!< no ping to destination */
+#define DS_STATES_ALL		63 /*!< all bits for the states of destination */
 
 #define ds_skip_dst(flags)	((flags) & (DS_INACTIVE_DST|DS_DISABLED_DST))
 
@@ -55,10 +56,12 @@
 #define DS_PROBE_INACTIVE	2
 #define DS_PROBE_ONLYFLAGGED	3
 
-#define DS_MATCH_ALL		0
-#define DS_MATCH_NOPORT		1
-#define DS_MATCH_NOPROTO	2
-#define DS_MATCH_ACTIVE 	4
+#define DS_MATCH_ALL			0
+#define DS_MATCH_NOPORT			1
+#define DS_MATCH_NOPROTO		2
+#define DS_MATCH_ACTIVE			4
+#define DS_MATCH_SOCKET			8
+#define DS_MATCH_MIXSOCKPRPORT	16
 
 #define DS_SETOP_DSTURI		0
 #define DS_SETOP_RURI		1
@@ -219,6 +222,17 @@ typedef struct _ds_latency_stats {
 void latency_stats_init(ds_latency_stats_t *latency_stats, int latency, int count);
 ds_latency_stats_t *latency_stats_find(int group, str *address);
 
+#define DS_OCDIST_SIZE 104
+typedef struct _ds_ocdata {
+	uint32_t ocrate;
+	uint32_t ocidx;
+	char ocdist[DS_OCDIST_SIZE];
+	struct timeval octime;
+	uint32_t ocseq;
+	uint32_t ocmin;
+	uint32_t ocmax;
+} ds_ocdata_t;
+
 typedef struct _ds_dest {
 	str uri;          /*!< address/uri */
 	str host;         /*!< shortcut to host part */
@@ -234,6 +248,7 @@ typedef struct _ds_dest {
 	unsigned short int proto; 	/*!< protocol of the URI */
 	int message_count;
 	struct timeval dnstime;
+	ds_ocdata_t ocdata;	/*!< overload control attributes */
 	struct _ds_dest *next;
 } ds_dest_t;
 
@@ -293,4 +308,6 @@ int ds_manage_routes(sip_msg_t *msg, ds_select_state_t *rstate);
 ds_rctx_t *ds_get_rctx(void);
 unsigned int ds_get_hash(str *x, str *y);
 
+int ds_oc_set_attrs(
+		sip_msg_t *msg, int setid, str *uri, int irval, int itval, int isval);
 #endif
